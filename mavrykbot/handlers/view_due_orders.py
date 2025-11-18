@@ -1,0 +1,336 @@
+from __future__ import annotations
+
+import logging
+from dataclasses import dataclass
+from datetime import date, datetime
+from io import BytesIO
+from typing import Optional
+
+import requests
+from telegram.constants import ParseMode
+from telegram.ext import ContextTypes
+
+from mavrykbot.core.database import db
+from mavrykbot.core.db_schema import (
+    ORDER_LIST_TABLE,
+    PRODUCT_PRICE_TABLE,
+    SUPPLY_PRICE_TABLE,
+    SUPPLY_TABLE,
+    OrderListColumns,
+    ProductPriceColumns,
+    SupplyColumns,
+    SupplyPriceColumns,
+)
+from mavrykbot.core.utils import escape_mdv2
+from mavrykbot.core import config
+
+logger = logging.getLogger(__name__)
+
+TARGET_STATUS = "Cần Gia Hạn"
+TARGET_DAYS_LEFT = 4
+MAX_DUE_ORDERS = 20
+QR_TEMPLATE = (
+    "https://img.vietqr.io/image/VPB-mavpre-compact2.png?amount={amount}"
+    "&addInfo={order_id}&accountName=NGO%20LE%20NGOC%20HUNG"
+)
+
+
+@dataclass
+class DueOrder:
+    db_id: int
+    order_code: str
+    product_name: str
+    description: str
+    customer_name: str
+    customer_link: str
+    slot: str
+    start_date: Optional[date]
+    duration_days: Optional[int]
+    expiry_date: Optional[date]
+    source: str
+    note: str
+    sale_price: int
+    days_left: int
+
+
+def _coerce_date(value) -> Optional[date]:
+    if value is None:
+        return None
+    if isinstance(value, date):
+        return value
+    if isinstance(value, datetime):
+        return value.date()
+    for fmt in ("%Y-%m-%d", "%d/%m/%Y"):
+        try:
+            return datetime.strptime(str(value), fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+def fetch_due_orders(limit: int = MAX_DUE_ORDERS) -> list[DueOrder]:
+    """
+    Query PostgreSQL to find orders that need extension.
+    Requirement: order_list.tinh_trang indicates "Cần Gia Hạn"
+    and remaining days equal TARGET_DAYS_LEFT.
+    """
+
+    supply_price_subquery = (
+        f"SELECT {SupplyPriceColumns.PRODUCT_ID} AS product_id,"
+        f" MIN({SupplyPriceColumns.PRICE}) AS price"
+        f" FROM {SUPPLY_PRICE_TABLE}"
+        f" GROUP BY {SupplyPriceColumns.PRODUCT_ID}"
+    )
+
+    sql = f"""
+        SELECT
+            ol.{OrderListColumns.ID},
+            ol.{OrderListColumns.ID_DON_HANG},
+            ol.{OrderListColumns.SAN_PHAM},
+            ol.{OrderListColumns.THONG_TIN_SAN_PHAM},
+            ol.{OrderListColumns.KHACH_HANG},
+            ol.{OrderListColumns.LINK_LIEN_HE},
+            ol.{OrderListColumns.SLOT},
+            ol.{OrderListColumns.NGAY_DANG_KI},
+            ol.{OrderListColumns.SO_NGAY_DA_DANG_KI},
+            ol.{OrderListColumns.HET_HAN},
+            ol.{OrderListColumns.NGUON},
+            ol.{OrderListColumns.NOTE},
+            COALESCE(ol.{OrderListColumns.GIA_BAN}, spp.price, 0) AS price_vnd
+        FROM {ORDER_LIST_TABLE} AS ol
+        LEFT JOIN {SUPPLY_TABLE} AS s
+            ON LOWER(s.{SupplyColumns.SOURCE_NAME}) = LOWER(ol.{OrderListColumns.NGUON})
+        LEFT JOIN {PRODUCT_PRICE_TABLE} AS pp
+            ON LOWER(pp.{ProductPriceColumns.SAN_PHAM}) = LOWER(ol.{OrderListColumns.SAN_PHAM})
+        LEFT JOIN ({supply_price_subquery}) AS spp
+            ON spp.product_id = pp.{ProductPriceColumns.ID}
+        WHERE LOWER(ol.{OrderListColumns.TINH_TRANG}) = LOWER(%s)
+        ORDER BY ol.{OrderListColumns.HET_HAN} ASC
+        LIMIT %s
+    """
+    rows = db.fetch_all(sql, (TARGET_STATUS, limit))
+    due_orders: list[DueOrder] = []
+    today = date.today()
+    for row in rows:
+        (
+            db_id,
+            order_code,
+            product,
+            description,
+            customer,
+            customer_link,
+            slot,
+            start_date,
+            duration_days,
+            expiry_date,
+            source,
+            note,
+            price_vnd,
+        ) = row
+        expiry = _coerce_date(expiry_date)
+        days_left = (expiry - today).days if expiry else 0
+        if days_left != TARGET_DAYS_LEFT:
+            continue
+        due_orders.append(
+            DueOrder(
+                db_id=int(db_id),
+                order_code=str(order_code or "").strip(),
+                product_name=str(product or "").strip(),
+                description=str(description or "").strip(),
+                customer_name=str(customer or "").strip(),
+                customer_link=str(customer_link or "").strip(),
+                slot=str(slot or "").strip(),
+                start_date=_coerce_date(start_date),
+                duration_days=int(duration_days) if duration_days else None,
+                expiry_date=_coerce_date(expiry_date),
+                source=str(source or "").strip(),
+                note=str(note or "").strip(),
+                sale_price=int(price_vnd or 0),
+                days_left=int(days_left),
+            )
+        )
+    return due_orders
+
+
+def _format_currency(value: int) -> str:
+    if value <= 0:
+        return "Chua xac dinh"
+    return f"{value:,} VND"
+
+
+def _build_caption(order: DueOrder, index: int, total: int) -> tuple[str, Optional[BytesIO]]:
+    header = (
+        f"*Don can gia han* `({index + 1}/{total})`\n"
+        f"*Ma don:* `{escape_mdv2(order.order_code)}`\n"
+        f"*San pham:* {escape_mdv2(order.product_name)}\n"
+        f"Con lai: {order.days_left} ngay"
+    )
+    info_lines = []
+    if order.description:
+        info_lines.append(f"- Mo ta: {escape_mdv2(order.description)}")
+    if order.slot:
+        info_lines.append(f"- Slot: {escape_mdv2(order.slot)}")
+    if order.start_date:
+        info_lines.append(f"- Ngay dang ky: {escape_mdv2(order.start_date.strftime('%d/%m/%Y'))}")
+    if order.duration_days:
+        info_lines.append(f"- Thoi han: {escape_mdv2(str(order.duration_days))} ngay")
+    if order.expiry_date:
+        info_lines.append(f"- Ngay het han: {escape_mdv2(order.expiry_date.strftime('%d/%m/%Y'))}")
+
+    customer_lines = [
+        f"- Ten khach: {escape_mdv2(order.customer_name or '---')}",
+    ]
+    if order.customer_link:
+        customer_lines.append(f"- Lien he: {escape_mdv2(order.customer_link)}")
+
+    price_text = _format_currency(order.sale_price)
+
+    body = "\n".join(info_lines)
+    customer_block = "\n".join(customer_lines)
+
+    caption = (
+        f"{header}\n\n"
+        f"*THONG TIN SAN PHAM*\n"
+        f"{body}\n"
+        f"- Gia ban: {escape_mdv2(price_text)}\n\n"
+        f"*THONG TIN KHACH HANG*\n"
+        f"{customer_block}\n\n"
+        f"Vui long thanh toan theo thong tin thuong dung.\n"
+        f"Xin cam on!"
+    )
+
+    qr_image = None
+    if order.sale_price > 0:
+        try:
+            qr_url = QR_TEMPLATE.format(amount=order.sale_price, order_id=order.order_code)
+            response = requests.get(qr_url, timeout=10)
+            response.raise_for_status()
+            qr_image = BytesIO(response.content)
+        except requests.RequestException as exc:
+            logger.warning("Failed generating QR for %s: %s", order.order_code, exc)
+
+    return caption, qr_image
+
+
+async def check_due_orders_job(context: ContextTypes.DEFAULT_TYPE) -> None:
+    logger.info("Running SQL-based due orders job...")
+    try:
+        orders = fetch_due_orders()
+    except Exception as exc:
+        logger.error("Failed to query due orders: %s", exc, exc_info=True)
+        try:
+            await context.bot.send_message(
+                chat_id=getattr(config, "ERROR_GROUP_ID", None),
+                message_thread_id=getattr(config, "ERROR_TOPIC_ID", None),
+                text=f"Job view_due_orders gap loi SQL: `{exc}`",
+            )
+        except Exception:
+            pass
+        return
+
+    group_id = getattr(config, "DUE_ORDER_GROUP_ID", None)
+    topic_id = getattr(config, "DUE_ORDER_TOPIC_ID", None)
+    if not group_id or not topic_id:
+        logger.error("Missing DUE_ORDER_GROUP_ID or DUE_ORDER_TOPIC_ID in config.")
+        return
+
+    if not orders:
+        logger.info("No due orders (days_left=%s).", TARGET_DAYS_LEFT)
+        try:
+            await context.bot.send_message(
+                chat_id=group_id,
+                message_thread_id=topic_id,
+                text=escape_mdv2("Khong co don nao can gia han sau 4 ngay."),
+                parse_mode=ParseMode.MARKDOWN_V2,
+            )
+        except Exception as exc:
+            logger.error("Failed sending empty notification: %s", exc)
+        return
+
+    try:
+        await context.bot.send_message(
+            chat_id=group_id,
+            message_thread_id=topic_id,
+            text=escape_mdv2(
+                f"Thong bao: tim thay {len(orders)} don can gia han (con {TARGET_DAYS_LEFT} ngay)."
+            ),
+            parse_mode=ParseMode.MARKDOWN_V2,
+        )
+    except Exception as exc:
+        logger.warning("Failed sending header message: %s", exc)
+
+    for index, order in enumerate(orders):
+        caption, qr_image = _build_caption(order, index, len(orders))
+        try:
+            if qr_image:
+                qr_image.seek(0)
+                await context.bot.send_photo(
+                    chat_id=group_id,
+                    message_thread_id=topic_id,
+                    photo=qr_image,
+                    caption=caption,
+                    parse_mode=ParseMode.MARKDOWN_V2,
+                )
+            else:
+                await context.bot.send_message(
+                    chat_id=group_id,
+                    message_thread_id=topic_id,
+                    text=caption,
+                    parse_mode=ParseMode.MARKDOWN_V2,
+                )
+        except BadRequest as exc:
+            logger.error("Failed sending order %s: %s", order.order_code, exc)
+        except Exception as exc:
+            logger.error("Unexpected error sending order %s: %s", order.order_code, exc, exc_info=True)
+
+
+def _format_due_orders_console(orders: list[DueOrder]) -> str:
+    parts = []
+    for order in orders:
+        parts.append(
+            f"{order.order_code} | {order.product_name} | {order.customer_name} | "
+            f"days_left={order.days_left} | price={order.sale_price}"
+        )
+    return "\n".join(parts)
+
+
+def test_view_due_orders(limit: int = 5) -> None:
+    """
+    Quick manual test helper so we can run `python -m mavrykbot.handlers.view_due_orders`.
+    Prints a summary of the due orders fetched from the database.
+    """
+    logger.info("Running manual test for view_due_orders with limit=%s", limit)
+    orders = fetch_due_orders(limit=limit)
+    if not orders:
+        print("No due orders found.")
+        return
+    print(_format_due_orders_console(orders))
+
+async def test_due_orders_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Xử lý lệnh /testjob để chạy test_view_due_orders và báo cáo kết quả."""
+    if update.message is None:
+        return
+
+    # Lấy đối số limit từ lệnh, mặc định là 5
+    try:
+        limit = int(context.args[0]) if context.args else 5
+    except ValueError:
+        limit = 5
+    
+    await update.message.reply_text(f"Đang chạy test_view_due_orders với limit={limit}. Kiểm tra console/log...")
+
+    try:
+        # Gọi hàm test đã có sẵn
+        # Lưu ý: Hàm test_view_due_orders chỉ in ra console (print),
+        # nên bot sẽ không nhận được kết quả trực tiếp trừ khi bạn chỉnh sửa hàm đó.
+        test_view_due_orders(limit=limit)
+        await update.message.reply_text(
+            escape_mdv2(f"Test job đã chạy xong. Kết quả được ghi vào log/console."),
+            parse_mode=ParseMode.MARKDOWN_V2,
+        )
+    except Exception as exc:
+        logger.error("Lỗi khi chạy test job: %s", exc, exc_info=True)
+        await update.message.reply_text(
+            escape_mdv2(f"Lỗi khi chạy test job: {exc}"),
+            parse_mode=ParseMode.MARKDOWN_V2,
+        )
