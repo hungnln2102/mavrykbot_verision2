@@ -21,8 +21,17 @@ from mavrykbot.core.db_schema import (
     SupplyColumns,
     SupplyPriceColumns,
 )
+from mavrykbot.core.config import load_topic_config
 from mavrykbot.core.utils import escape_mdv2
-from mavrykbot.core import config
+
+TOPIC_CONFIG = load_topic_config()
+
+SEND_DUE_ORDER_TO_TOPIC = TOPIC_CONFIG.send_due_order_to_topic
+SEND_ERROR_TO_TOPIC = TOPIC_CONFIG.send_error_to_topic
+DUE_ORDER_GROUP_ID = TOPIC_CONFIG.due_order_group_id
+DUE_ORDER_TOPIC_ID = TOPIC_CONFIG.due_order_topic_id
+ERROR_GROUP_ID = TOPIC_CONFIG.error_group_id
+ERROR_TOPIC_ID = TOPIC_CONFIG.error_topic_id
 
 logger = logging.getLogger(__name__)
 
@@ -214,22 +223,26 @@ def _build_caption(order: DueOrder, index: int, total: int) -> tuple[str, Option
 
 async def check_due_orders_job(context: ContextTypes.DEFAULT_TYPE) -> None:
     logger.info("Running SQL-based due orders job...")
+    if not SEND_DUE_ORDER_TO_TOPIC:
+        logger.info("SEND_DUE_ORDER_TO_TOPIC is disabled; skipping notification job.")
+        return
     try:
         orders = fetch_due_orders()
     except Exception as exc:
         logger.error("Failed to query due orders: %s", exc, exc_info=True)
-        try:
-            await context.bot.send_message(
-                chat_id=getattr(config, "ERROR_GROUP_ID", None),
-                message_thread_id=getattr(config, "ERROR_TOPIC_ID", None),
-                text=f"Job view_due_orders gap loi SQL: `{exc}`",
-            )
-        except Exception:
-            pass
+        if SEND_ERROR_TO_TOPIC and ERROR_GROUP_ID and ERROR_TOPIC_ID is not None:
+            try:
+                await context.bot.send_message(
+                    chat_id=ERROR_GROUP_ID,
+                    message_thread_id=ERROR_TOPIC_ID,
+                    text=f"Job view_due_orders gap loi SQL: `{exc}`",
+                )
+            except Exception:
+                pass
         return
 
-    group_id = getattr(config, "DUE_ORDER_GROUP_ID", None)
-    topic_id = getattr(config, "DUE_ORDER_TOPIC_ID", None)
+    group_id = DUE_ORDER_GROUP_ID
+    topic_id = DUE_ORDER_TOPIC_ID
     if not group_id or not topic_id:
         logger.error("Missing DUE_ORDER_GROUP_ID or DUE_ORDER_TOPIC_ID in config.")
         return

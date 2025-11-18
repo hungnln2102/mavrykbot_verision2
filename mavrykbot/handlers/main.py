@@ -75,6 +75,7 @@ from mavrykbot.handlers.add_order import get_add_order_conversation_handler
 from mavrykbot.handlers.update_order import get_update_order_conversation_handler
 from mavrykbot.handlers.View_order_unpaid import get_unpaid_order_conversation_handler
 from mavrykbot.handlers.Payment_Supply import get_payment_supply_conversation_handler
+from mavrykbot.notifications.error_notifier import notify_error
 try:
     # Giả định qr_conversation nằm trong create_qrcode.py
     from mavrykbot.handlers.create_qrcode import qr_conversation 
@@ -100,7 +101,6 @@ DEFAULT_COMING_SOON = "Tính năng này đang được phát triển, vui lòng 
 COMING_SOON_MESSAGES = {
     "start_refund": "Hoàn tiền đang được phát triển.",
     "update": "Tính năng xem/chỉnh đơn sẽ sớm mở lại.",
-    "nhap_hang": "Nhập hàng đang được phát triển.",
 }
 
 # --- FILTERS ---
@@ -168,6 +168,21 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await _send_coming_soon(update, data)
 
 
+async def application_error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Global PTB error handler that also pings the error topic."""
+    logger.error("Unhandled exception while processing update.", exc_info=context.error)
+
+    error_message = "Bot gặp lỗi không xử lý được."
+    extra = {}
+    if update:
+        extra["update"] = str(update)
+
+    try:
+        await notify_error(context.bot, error_message, exception=context.error, extra=extra if extra else None)
+    except Exception as exc:  # pragma: no cover
+        logger.error("Failed to notify error topic: %s", exc, exc_info=True)
+
+
 def main() -> None:
     application = (
         Application.builder().token(BOT_TOKEN).rate_limiter(AIORateLimiter()).build()
@@ -188,6 +203,7 @@ def main() -> None:
     # Callback Query Handler (Xử lý các nút bấm)
     application.add_handler(CallbackQueryHandler(button_callback))
     application.add_handler(CommandHandler("testjob", test_due_orders_command))
+    application.add_error_handler(application_error_handler)
     # --- CHẾ ĐỘ CHẠY: POLLING (Tối ưu cho phát triển trên Windows) ---
     logger.info("Khởi động BOT ở chế độ Polling...")
     application.run_polling(allowed_updates=Update.ALL_TYPES)

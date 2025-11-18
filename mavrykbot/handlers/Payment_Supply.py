@@ -28,6 +28,7 @@ from mavrykbot.handlers.menu import show_outer_menu
 logger = logging.getLogger(__name__)
 
 PAYMENT_PENDING_STATUS = "Chưa Thanh Toán"
+PAYMENT_PAID_STATUS = "Đã Thanh Toán"
 ORDER_PENDING_STATUS = "Chưa Thanh Toán"
 ORDER_PAID_STATUS = "Đã Thanh Toán"
 USER_DATA_KEY = "payment_supply_entries"
@@ -53,6 +54,7 @@ class SupplyPayment:
     round_label: str | None
     order_ids: List[int]
     order_sum: int
+    override_amount: int | None = None
 
 
 def _normalize_amount(value) -> int:
@@ -185,7 +187,7 @@ async def show_source_payment(
 
     entries = _ensure_entries(context)
     if not entries:
-        message = escape_mdv2("Khong co nguon nao dang can thanh toan.")
+        message = escape_mdv2("Không có nguồn nào đang cần thanh toán.")
         if query:
             try:
                 await query.edit_message_text(message, parse_mode="MarkdownV2")
@@ -200,43 +202,46 @@ async def show_source_payment(
     index = max(0, min(index, len(entries) - 1))
     context.user_data["payment_supply_index"] = index
     entry = entries[index]
+    if force_amount is not None and force_amount > 0:
+        entry.override_amount = force_amount
     expected_amount = entry.expected_amount or 0
     actual_amount = entry.order_sum or 0
-    override_amount = force_amount if (force_amount is not None and force_amount > 0) else None
 
+    override_amount = entry.override_amount if (entry.override_amount is not None and entry.override_amount > 0) else None
     amount_value = override_amount if override_amount is not None else (expected_amount or actual_amount)
     if amount_value <= 0:
         amount_value = expected_amount or actual_amount
-    amount_label = "So tien yeu cau (Import)" if override_amount is None else "So tien chuyen"
+    amount_label = "Số tiền yêu cầu (Import)" if override_amount is None else "Số tiền chuyển"
+    amount_label_display = escape_mdv2(amount_label)
     amount_str = escape_mdv2(_format_currency(amount_value))
     actual_str = escape_mdv2(_format_currency(actual_amount))
 
     caption_lines = [
-        f"📋 *Thanh Toan Nguon* `({index + 1}/{len(entries)})`",
-        f"*Nguon:* {escape_mdv2(entry.source_name)}",
-        f"*Noi dung chuyen khoan:* `{escape_mdv2(entry.source_name)}`",
+        f"📋 *Thanh Toán Nguồn* `({index + 1}/{len(entries)})`",
+        f"*Nguồn:* {escape_mdv2(entry.source_name)}",
+        f"*Nội dung chuyển khoản:* `{escape_mdv2(entry.source_name)}`",
     ]
     if entry.round_label:
-        caption_lines.append(f"*Vong:* {escape_mdv2(str(entry.round_label))}")
+        caption_lines.append(f"*Vòng:* {escape_mdv2(str(entry.round_label))}")
     caption_lines.extend(
         [
-            f"*{amount_label}:* {amount_str}",
-            f"*Tong gia nhap chua thanh toan:* {actual_str}",
-            f"*So tai khoan:* `{escape_mdv2(entry.bank_number or 'Chua cap nhat')}`",
-            f"*Ngan hang:* {escape_mdv2(entry.bank_code or 'Chua cap nhat')}",
+            f"*{amount_label_display}:* {amount_str}",
+            f"*Tổng giá nhập chưa thanh toán:* {actual_str}",
+            f"*Số tài khoản:* `{escape_mdv2(entry.bank_number or 'Chưa cập nhật')}`",
+            f"*Ngân hàng:* {escape_mdv2(entry.bank_code or 'Chưa cập nhật')}",
         ]
     )
     if actual_amount != expected_amount:
         caption_lines.append("")
         caption_lines.append(
-            escape_mdv2("Luu y: Tong gia nhap khong khop so tien can thanh toan. Kiem tra truoc khi chuyen.")
+            escape_mdv2("Lưu ý: Tổng giá nhập không khớp số tiền cần thanh toán. Kiểm tra trước khi chuyển.")
         )
     if override_amount is not None:
         caption_lines.append(
-            escape_mdv2("Dang su dung tong gia nhap chua thanh toan lam so tien chuyen.")
+            escape_mdv2("Đang sử dụng tổng giá nhập chưa thanh toán làm số tiền chuyển.")
         )
     caption_lines.append("")
-    caption_lines.append(escape_mdv2("Ten nguon duoc dung lam noi dung thanh toan."))
+    caption_lines.append(escape_mdv2("Tên nguồn được dùng làm nội dung thanh toán."))
     caption = "\n".join(caption_lines)
 
     show_full_button = actual_amount > 0 and actual_amount != expected_amount and override_amount is None
@@ -244,17 +249,17 @@ async def show_source_payment(
     buttons: list[list[InlineKeyboardButton]] = []
     nav_buttons: list[InlineKeyboardButton] = []
     if index > 0:
-        nav_buttons.append(InlineKeyboardButton("Truoc", callback_data=f"source_prev|{index}"))
+        nav_buttons.append(InlineKeyboardButton("Trước", callback_data=f"source_prev|{index}"))
     if index < len(entries) - 1:
         nav_buttons.append(InlineKeyboardButton("Sau", callback_data=f"source_next|{index}"))
     if nav_buttons:
         buttons.append(nav_buttons)
     if show_full_button:
-        buttons.append([InlineKeyboardButton("Thanh Toan Toan Bo", callback_data=f"source_full|{index}")])
+        buttons.append([InlineKeyboardButton("Thanh Toán Toàn Bộ", callback_data=f"source_full|{index}")])
     buttons.append(
         [
-            InlineKeyboardButton("Da Thanh Toan", callback_data=f"source_paid|{index}"),
-            InlineKeyboardButton("Ket thuc", callback_data="exit_to_main"),
+            InlineKeyboardButton("Đã Thanh Toán", callback_data=f"source_paid|{index}"),
+            InlineKeyboardButton("Kết Thúc", callback_data="exit_to_main"),
         ]
     )
     reply_markup = InlineKeyboardMarkup(buttons)
@@ -278,7 +283,7 @@ async def show_source_payment(
         except BadRequest as exc:
             text = str(exc)
             if "Message is not modified" in text:
-                await query.answer("Noi dung khong thay doi.")
+                await query.answer("Nội dung không thay đổi.")
                 return
             if "parse" in text.lower():
                 logger.warning("Markdown parse failed when editing payment QR: %s", exc)
@@ -290,7 +295,7 @@ async def show_source_payment(
                     return
                 except BadRequest as exc_plain:
                     logger.error("Retry edit_media without Markdown failed: %s", exc_plain)
-            logger.debug("edit_media that bai, gui moi: %s", exc)
+            logger.debug("edit_media thất bại, gửi mới: %s", exc)
 
     if query and query.message:
         try:
@@ -329,10 +334,11 @@ async def start_payment_supply(update: Update, context: ContextTypes.DEFAULT_TYP
 def _update_payment_supply(payment_id: int, paid_value: int) -> None:
     sql = f"""
         UPDATE {PAYMENT_SUPPLY_TABLE}
-        SET {PaymentSupplyColumns.STATUS} = %s
+        SET {PaymentSupplyColumns.STATUS} = %s,
+            {PaymentSupplyColumns.PAID} = %s
         WHERE {PaymentSupplyColumns.ID} = %s
     """
-    db.execute(sql, (str(paid_value), payment_id))
+    db.execute(sql, (PAYMENT_PAID_STATUS, paid_value, payment_id))
 
 
 def _mark_orders_paid(order_ids: List[int]) -> None:
@@ -374,7 +380,8 @@ async def handle_source_paid(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await query.answer("Không tìm thấy đơn nào cần cập nhật.", show_alert=True)
         return VIEWING
 
-    paid_value = order_sum or entry.expected_amount
+    override_amount = entry.override_amount if (entry.override_amount is not None and entry.override_amount > 0) else None
+    paid_value = override_amount or order_sum or entry.expected_amount
     try:
         _update_payment_supply(entry.payment_id, paid_value)
         _mark_orders_paid(order_ids)
@@ -428,6 +435,7 @@ async def handle_full_payment(update: Update, context: ContextTypes.DEFAULT_TYPE
         await query.answer("Chưa có tổng giá nhập để thanh toán.", show_alert=True)
         return VIEWING
     entry.order_sum = amount
+    entry.override_amount = amount
     await show_source_payment(
         update, context, index=index, force_amount=amount
     )

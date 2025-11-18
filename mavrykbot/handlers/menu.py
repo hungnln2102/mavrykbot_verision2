@@ -70,7 +70,6 @@ async def show_main_selector(
             InlineKeyboardButton("🔄 Xem/Chỉnh Đơn", callback_data="update"),
         ],
         [
-            InlineKeyboardButton("📥 Nhập Hàng", callback_data="nhap_hang"),
             InlineKeyboardButton("⬅️ Về menu chính", callback_data="back_to_menu"),
         ],
     ]

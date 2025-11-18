@@ -5,14 +5,27 @@ from typing import Any, Mapping
 
 from telegram import Bot
 
+from mavrykbot.core.config import load_topic_config
 from mavrykbot.core.utils import escape_mdv2
 
 __all__ = ["send_renewal_success_notification"]
 
 logger = logging.getLogger(__name__)
 
-NOTIFICATION_GROUP_ID = "-1002934465528"
-RENEWAL_TOPIC_ID = 2
+DEFAULT_NOTIFICATION_GROUP_ID = "-1002934465528"
+DEFAULT_RENEWAL_TOPIC_ID = 2
+
+TOPIC_CONFIG = load_topic_config()
+
+
+def _resolve_target(chat_id: str | None, topic_id: int | None) -> tuple[str | None, int | None]:
+    resolved_chat = chat_id or TOPIC_CONFIG.renewal_group_id or DEFAULT_NOTIFICATION_GROUP_ID
+    topic_source = topic_id if topic_id is not None else (TOPIC_CONFIG.renewal_topic_id or DEFAULT_RENEWAL_TOPIC_ID)
+    try:
+        resolved_topic = int(topic_source)
+    except (TypeError, ValueError):
+        resolved_topic = None
+    return resolved_chat, resolved_topic
 
 
 def _format_currency(value: Any) -> str:
@@ -35,8 +48,8 @@ async def send_renewal_success_notification(
     bot: Bot,
     order_details: Mapping[str, Any] | None,
     *,
-    target_chat_id: str = NOTIFICATION_GROUP_ID,
-    target_topic_id: int = RENEWAL_TOPIC_ID,
+    target_chat_id: str | None = None,
+    target_topic_id: int | None = None,
 ) -> None:
     """
     Notify the renewal topic when a background renewal succeeds.
@@ -52,6 +65,15 @@ async def send_renewal_success_notification(
     """
     if not order_details:
         logger.warning("send_renewal_success_notification was called without order details.")
+        return
+
+    if not TOPIC_CONFIG.send_renewal_to_topic:
+        logger.info("Skipping renewal notification because SEND_RENEWAL_TO_TOPIC is disabled in config.")
+        return
+
+    target_chat_id, target_topic_id = _resolve_target(target_chat_id, target_topic_id)
+    if not target_chat_id or target_topic_id is None:
+        logger.error("Cannot send renewal notification: missing chat/topic configuration.")
         return
 
     try:
