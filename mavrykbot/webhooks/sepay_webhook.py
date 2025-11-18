@@ -1,14 +1,22 @@
-import json
-import logging
+from __future__ import annotations
+
+import asyncio
 import hashlib
 import hmac
+import json
+import logging
+import os
+import threading
 from datetime import datetime
-from typing import Dict, Any, Optional
-from flask import Flask, request, jsonify
+from typing import Any, Dict, Optional, Tuple
+from urllib.parse import urlparse
+
+from flask import Flask, jsonify, request
+from telegram import Update
 from waitress import serve
 
 try:
-    from mavrykbot.bootstrap import ensure_project_root, ensure_env_loaded
+    from mavrykbot.bootstrap import ensure_env_loaded, ensure_project_root
 except ModuleNotFoundError as exc:
     if exc.name not in {"mavrykbot", "mavrykbot.bootstrap"}:
         raise
@@ -16,7 +24,7 @@ except ModuleNotFoundError as exc:
     from pathlib import Path
 
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-    from mavrykbot.bootstrap import ensure_project_root, ensure_env_loaded
+    from mavrykbot.bootstrap import ensure_env_loaded, ensure_project_root
 
 ensure_project_root()
 ensure_env_loaded()
@@ -24,132 +32,166 @@ ensure_env_loaded()
 from mavrykbot.core.config import load_sepay_config
 from mavrykbot.core.database import db
 from mavrykbot.core.db_schema import PAYMENT_RECEIPT_TABLE, PaymentReceiptColumns
+from mavrykbot.handlers.main import build_application
 
-# --- Khởi tạo Flask App ---
+logger = logging.getLogger(__name__)
 app = Flask(__name__)
 
-# --- Cấu hình Logging ---
-logger = logging.getLogger(__name__)
+SEPAY_WEBHOOK_PATH = "/api/payment/notify"
+WEBHOOK_URL = (os.getenv("WEBHOOK_URL") or "").strip()
+WEBHOOK_SECRET = os.getenv("TELEGRAM_WEBHOOK_SECRET") or os.getenv("WEBHOOK_SECRET")
+_parsed_url = urlparse(WEBHOOK_URL) if WEBHOOK_URL else None
+TELEGRAM_WEBHOOK_PATH = (_parsed_url.path or "/bot/webhook") if _parsed_url else "/bot/webhook"
 
-# --- Cấu hình Sepay (Tải một lần) ---
 try:
     SEPAY_CFG = load_sepay_config()
 except RuntimeError:
     logger.warning("SEPAY config not fully loaded. Webhook verification may fail.")
     SEPAY_CFG = None
 
-SEPAY_WEBHOOK_PATH = "/api/payment/notify" 
 
-# =========================================================================
-# LỌC & XÁC MINH CHỮ KÝ (HMAC-SHA256)
-# =========================================================================
+def _split_transaction_content(content: str) -> Tuple[str, str]:
+    parts = (content or "").strip().split()
+    if not parts:
+        raise ValueError("transaction_content is empty")
+    if len(parts) == 1:
+        return parts[0], parts[0]
+    return parts[-1], parts[0]
+
 
 def verify_sepay_signature(request_body: bytes, signature: Optional[str]) -> bool:
-    """Xác minh chữ ký HMAC-SHA256 của Sepay."""
-    if not SEPAY_CFG or not SEPAY_CFG.webhook_secret:
+    if not SEPAY_CFG or not SEPAY_CFG.webhook_secret or not signature:
         return False
-    if not signature:
-        return False
-        
     expected_signature = hmac.new(
-        SEPAY_CFG.webhook_secret.encode('utf-8'),
+        SEPAY_CFG.webhook_secret.encode("utf-8"),
         request_body,
-        hashlib.sha256
+        hashlib.sha256,
     ).hexdigest()
-    
     return hmac.compare_digest(expected_signature, signature)
 
-# =========================================================================
-# XỬ LÝ DỮ LIỆU VÀ LƯU VÀO SQL
-# =========================================================================
 
 def insert_payment_receipt(transaction_data: Dict[str, Any]) -> None:
-    """Trích xuất dữ liệu Sepay và ghi vào PostgreSQL."""
-    
-    transaction_content = transaction_data.get('transaction_content', '')
-    ma_don_hang = transaction_content.split()[-1] 
-    
-    ngay_thanh_toan_str = transaction_data.get('transaction_date')
-    ngay_thanh_toan = datetime.strptime(ngay_thanh_toan_str, "%Y-%m-%d %H:%M:%S").date() 
-    
-    so_tien_str = transaction_data.get('amount_in', '0').split('.')[0]
-    so_tien = int(so_tien_str)
+    order_code, sender = _split_transaction_content(
+        transaction_data.get("transaction_content", "")
+    )
+    paid_date = datetime.strptime(
+        transaction_data.get("transaction_date", ""),
+        "%Y-%m-%d %H:%M:%S",
+    ).date()
+    amount = int(transaction_data.get("amount_in", "0").split(".")[0] or 0)
 
-    nguoi_gui = transaction_content.split()[0]
-    
-    # 5. Insert vào bảng payment_receipt
-    sql_query = f"""
+    sql = f"""
         INSERT INTO {PAYMENT_RECEIPT_TABLE} (
-            {PaymentReceiptColumns.MA_DON_HANG}, 
-            {PaymentReceiptColumns.NGAY_THANH_TOAN}, 
-            {PaymentReceiptColumns.SO_TIEN}, 
-            {PaymentReceiptColumns.NGUOI_GUI}, 
+            {PaymentReceiptColumns.MA_DON_HANG},
+            {PaymentReceiptColumns.NGAY_THANH_TOAN},
+            {PaymentReceiptColumns.SO_TIEN},
+            {PaymentReceiptColumns.NGUOI_GUI},
             {PaymentReceiptColumns.NOI_DUNG_CK}
-        ) VALUES (
-            %s, %s, %s, %s, %s
-        )
+        ) VALUES (%s, %s, %s, %s, %s)
     """
-    params = (ma_don_hang, ngay_thanh_toan, so_tien, nguoi_gui, transaction_content)
-    
-    db.execute(sql_query, params)
-    logger.info(f"Payment receipt for Order {ma_don_hang} successfully saved.")
+    db.execute(
+        sql,
+        (
+            order_code,
+            paid_date,
+            amount,
+            sender,
+            transaction_data.get("transaction_content", ""),
+        ),
+    )
+    logger.info("Saved payment receipt for order %s", order_code)
 
-# =========================================================================
-# ENDPOINTS (ROUTES) CHO CẢ SEPAY VÀ TELEGRAM
-# =========================================================================
-# --- THÊM ROUTE XỬ LÝ TELEGRAM WEBHOOK ---
 
-# LƯU Ý: Đây là đường dẫn mà bạn đã thiết lập thành công trên Telegram API.
-@app.route('/webhook', methods=['POST'])
+# ----------------------------------------------------------------------
+# Telegram webhook adapter (runs inside the same Gunicorn workers)
+# ----------------------------------------------------------------------
+_telegram_app = build_application()
+_telegram_loop = asyncio.new_event_loop()
+_telegram_available = True
+
+
+def _start_telegram_bot() -> None:
+    asyncio.set_event_loop(_telegram_loop)
+    try:
+        _telegram_loop.run_until_complete(_telegram_app.initialize())
+        _telegram_loop.run_until_complete(_telegram_app.start())
+        if WEBHOOK_URL:
+            _telegram_loop.run_until_complete(
+                _telegram_app.bot.set_webhook(WEBHOOK_URL, secret_token=WEBHOOK_SECRET)
+            )
+        logger.info("Telegram webhook dispatcher ready at %s", TELEGRAM_WEBHOOK_PATH)
+        _telegram_loop.run_forever()
+    except Exception as exc:  # pragma: no cover - defensive logging
+        global _telegram_available
+        _telegram_available = False
+        logger.error("Failed to start Telegram bot loop: %s", exc, exc_info=True)
+
+
+threading.Thread(target=_start_telegram_bot, name="telegram-webhook", daemon=True).start()
+
+
+def _dispatch_telegram_update(payload: Dict[str, Any]) -> None:
+    update = Update.de_json(payload, _telegram_app.bot)
+    asyncio.run_coroutine_threadsafe(
+        _telegram_app.process_update(update),
+        _telegram_loop,
+    )
+
+
+@app.route("/", methods=["GET"])
+def healthcheck():
+    return jsonify({"status": "ok"}), 200
+
+
+@app.route(TELEGRAM_WEBHOOK_PATH, methods=["POST"])
 def telegram_webhook_receiver():
-    logger.info(">>> TELEGRAM WEBHOOK RECEIVED SUCCESSFULLY <<<")
-    
-    if request.method == 'POST':
-        try:
-            update = request.get_json()
-            # BẠN CẦN THÊM LOGIC XỬ LÝ CHÍNH TẠI ĐÂY
-            
-            return '', 200 # Trả về 200 OK
-        except Exception as e:
-            logger.error(f"Error processing Telegram update: {e}", exc_info=True)
-            return '', 200 # Luôn trả về 200 cho Telegram để không lặp lại yêu cầu
-    
-    return 'Not Found', 404
+    if not _telegram_available:
+        return jsonify({"message": "Telegram webhook is not ready"}), 503
 
-@app.route(SEPAY_WEBHOOK_PATH, methods=['POST'])
+    secret_header = request.headers.get("X-Telegram-Bot-Api-Secret-Token")
+    if WEBHOOK_SECRET and secret_header != WEBHOOK_SECRET:
+        logger.warning("Rejected Telegram webhook due to secret mismatch.")
+        return jsonify({"message": "Forbidden"}), 403
+
+    try:
+        payload = request.get_json(force=True)
+    except Exception:
+        return jsonify({"message": "Invalid JSON"}), 400
+
+    try:
+        _dispatch_telegram_update(payload)
+    except Exception as exc:  # pragma: no cover
+        logger.error("Failed to dispatch Telegram update: %s", exc, exc_info=True)
+        return jsonify({"message": "Internal Server Error"}), 500
+
+    return jsonify({"message": "OK"}), 200
+
+
+@app.route(SEPAY_WEBHOOK_PATH, methods=["POST"])
 def sepay_webhook_receiver():
-    """Endpoint lắng nghe yêu cầu POST từ Sepay."""
-    
     raw_body = request.get_data()
-    # Sepay sử dụng header X-SEPAY-SIGNATURE
-    signature = request.headers.get('X-SEPAY-SIGNATURE') 
-    
-    if not verify_sepay_signature(raw_body, signature or ''):
+    signature = request.headers.get("X-SEPAY-SIGNATURE")
+
+    if not verify_sepay_signature(raw_body, signature):
         logger.error("Sepay Webhook signature verification failed.")
         return jsonify({"message": "Invalid Signature"}), 403
-    
+
     try:
-        data = json.loads(raw_body.decode('utf-8'))
-        transaction_data = data.get('transaction') 
-        
+        data = json.loads(raw_body.decode("utf-8"))
+        transaction_data = data.get("transaction")
         if not transaction_data:
             return jsonify({"message": "Missing Transaction Data"}), 400
-            
     except json.JSONDecodeError:
         return jsonify({"message": "Invalid JSON"}), 400
 
     try:
         insert_payment_receipt(transaction_data)
         return jsonify({"message": "OK"}), 200
-    except Exception as e:
-        logger.error(f"Error processing and saving data: {e}", exc_info=True)
+    except Exception as exc:
+        logger.error("Error processing and saving data: %s", exc, exc_info=True)
         return jsonify({"message": "Internal Server Error"}), 500
 
-if __name__ == '__main__':
-    # File này chỉ chạy SERVER khi được gọi trực tiếp
-    print("\n=======================================================")
-    print(f"✅ Bắt đầu chạy Sepay Webhook Server (Waitress)")
-    print(f"   Lắng nghe tại http://0.0.0.0:5000{SEPAY_WEBHOOK_PATH}")
-    print("=======================================================")
-    
-    serve(app, host='0.0.0.0', port=5000)
+
+if __name__ == "__main__":
+    print(f"Listening on http://0.0.0.0:5000{SEPAY_WEBHOOK_PATH}")
+    serve(app, host="0.0.0.0", port=5000)
