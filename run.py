@@ -13,6 +13,8 @@ ensure_env_loaded()
 from mavrykbot.handlers.main import run_bot_webhook
 from mavrykbot.webhooks.sepay_webhook import SEPAY_WEBHOOK_PATH, app
 
+DEFAULT_WEBHOOK_URL = "https://botapi.mavrykpremium.store/bot/webhook"
+
 
 def _start_sepay_server() -> None:
     host = os.getenv("SEPAY_HOST", "0.0.0.0")
@@ -22,9 +24,7 @@ def _start_sepay_server() -> None:
 
 
 def _collect_webhook_config() -> tuple[str, str, int, str | None, str | None]:
-    webhook_url = (os.getenv("WEBHOOK_URL") or "").strip()
-    if not webhook_url:
-        raise RuntimeError("WEBHOOK_URL is required to run Telegram webhook mode.")
+    webhook_url = (os.getenv("WEBHOOK_URL") or DEFAULT_WEBHOOK_URL).strip()
 
     listen = os.getenv("WEBHOOK_LISTEN", "0.0.0.0")
     port = int(os.getenv("WEBHOOK_PORT", "8443"))
