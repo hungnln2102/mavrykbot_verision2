@@ -145,29 +145,6 @@ def sepay_webhook_receiver():
         logger.error(f"Error processing and saving data: {e}", exc_info=True)
         return jsonify({"message": "Internal Server Error"}), 500
 
-
-# --- ROUTE MỚI ĐƯỢC THÊM VÀO ĐỂ XỬ LÝ LỖI 404 CỦA TELEGRAM ---
-@app.route('/webhook', methods=['POST'])
-def telegram_webhook_receiver():
-    """Endpoint lắng nghe yêu cầu POST từ Telegram."""
-    
-    if request.method == 'POST':
-        # 1. Lấy dữ liệu tin nhắn (JSON)
-        update = request.get_json()
-        
-        # 2. GỌI LOGIC XỬ LÝ CHÍNH CỦA BOT TẠI ĐÂY
-        # NOTE: Bạn cần import hoặc gọi hàm xử lý chính của bot (ví dụ: handle_update(update))
-        # Nếu bot của bạn là một phần của hệ thống này, hãy đảm bảo các hàm xử lý được import.
-        # Hiện tại, chỉ trả về 200 OK để Telegram ngừng báo lỗi 404.
-        
-        # Trả về phản hồi thành công ngay lập tức
-        return '', 200
-    
-    # Nếu không phải POST, trả về 404 để tránh truy cập trực tiếp
-    return 'Not Found', 404
-# --- KẾT THÚC ROUTE MỚI ---
-
-
 if __name__ == '__main__':
     # File này chỉ chạy SERVER khi được gọi trực tiếp
     print("\n=======================================================")
