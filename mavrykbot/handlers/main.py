@@ -1,6 +1,6 @@
 """
 Telegram bot entry point.
-Sets up handlers and can run either in polling mode (dev) or webhook mode (production).
+Sets up handlers and provides the Application builder function for webhook mode.
 """
 from __future__ import annotations
 
@@ -180,6 +180,7 @@ async def application_error_handler(update: object, context: ContextTypes.DEFAUL
 
 
 def build_application() -> Application:
+    """Xây dựng và trả về đối tượng Application để sử dụng cho Webhook."""
     application = (
         Application.builder().token(BOT_TOKEN).rate_limiter(AIORateLimiter()).build()
     )
@@ -197,39 +198,3 @@ def build_application() -> Application:
     application.add_handler(CommandHandler("testjob", test_due_orders_command))
     application.add_error_handler(application_error_handler)
     return application
-
-
-def run_bot_polling() -> None:
-    logger.info("Starting Telegram bot in polling mode.")
-    build_application().run_polling(allowed_updates=Update.ALL_TYPES)
-
-
-def run_bot_webhook(
-    webhook_url: str,
-    listen: str = "0.0.0.0",
-    port: int = 8443,
-    webhook_path: Optional[str] = None,
-    secret_token: Optional[str] = None,
-) -> None:
-    if not webhook_url:
-        raise ValueError("webhook_url must be provided for webhook mode.")
-
-    parsed = urlparse(webhook_url)
-    url_path = webhook_path or parsed.path.lstrip("/") or ""
-    logger.info("Starting Telegram webhook server at %s:%s path=%s", listen, port, url_path)
-    build_application().run_webhook(
-        listen=listen,
-        port=port,
-        url_path=url_path,
-        webhook_url=webhook_url,
-        secret_token=secret_token,
-        allowed_updates=Update.ALL_TYPES,
-    )
-
-
-def main() -> None:
-    run_bot_polling()
-
-
-if __name__ == "__main__":
-    main()

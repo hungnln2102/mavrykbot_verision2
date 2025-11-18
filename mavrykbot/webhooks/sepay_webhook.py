@@ -13,6 +13,7 @@ from urllib.parse import urlparse
 
 from flask import Flask, jsonify, request
 from telegram import Update
+from telegram.ext import Application
 from waitress import serve
 
 try:
@@ -32,11 +33,12 @@ ensure_env_loaded()
 from mavrykbot.core.config import load_sepay_config
 from mavrykbot.core.database import db
 from mavrykbot.core.db_schema import PAYMENT_RECEIPT_TABLE, PaymentReceiptColumns
-from mavrykbot.handlers.main import build_application
+from mavrykbot.handlers.main import build_application  # IMPORT HÀM BUILD APPLICATION
 
 logger = logging.getLogger(__name__)
 app = Flask(__name__)
 
+# Tải cấu hình Webhook từ .env
 SEPAY_WEBHOOK_PATH = "/api/payment/notify"
 WEBHOOK_URL = (os.getenv("WEBHOOK_URL") or "").strip()
 WEBHOOK_SECRET = os.getenv("TELEGRAM_WEBHOOK_SECRET") or os.getenv("WEBHOOK_SECRET")
@@ -105,49 +107,71 @@ def insert_payment_receipt(transaction_data: Dict[str, Any]) -> None:
 # ----------------------------------------------------------------------
 # Telegram webhook adapter (runs inside the same Gunicorn workers)
 # ----------------------------------------------------------------------
-_telegram_app = build_application()
+
+# KHỞI TẠO APPLICATION MỘT LẦN
+_telegram_app: Application = build_application()
 _telegram_loop = asyncio.new_event_loop()
 _telegram_available = True
 
 
 def _start_telegram_bot() -> None:
+    """Khởi động asyncio loop trong luồng nền."""
     asyncio.set_event_loop(_telegram_loop)
     try:
+        # Khởi tạo application và bắt đầu vòng lặp asyncio
         _telegram_loop.run_until_complete(_telegram_app.initialize())
         _telegram_loop.run_until_complete(_telegram_app.start())
+        
+        # Thiết lập webhook (dùng đường dẫn từ .env)
         if WEBHOOK_URL:
             _telegram_loop.run_until_complete(
                 _telegram_app.bot.set_webhook(WEBHOOK_URL, secret_token=WEBHOOK_SECRET)
             )
         logger.info("Telegram webhook dispatcher ready at %s", TELEGRAM_WEBHOOK_PATH)
         _telegram_loop.run_forever()
-    except Exception as exc:  # pragma: no cover - defensive logging
+    except Exception as exc:  # pragma: no cover
         global _telegram_available
         _telegram_available = False
         logger.error("Failed to start Telegram bot loop: %s", exc, exc_info=True)
 
 
+# Bắt đầu luồng xử lý Webhook
 threading.Thread(target=_start_telegram_bot, name="telegram-webhook", daemon=True).start()
 
 
 def _dispatch_telegram_update(payload: Dict[str, Any]) -> None:
+    """Đồng bộ hóa việc gửi update đến vòng lặp asyncio của PTB."""
+    if not _telegram_available:
+        logger.error("Telegram loop is not available, skipping update dispatch.")
+        return
+        
     update = Update.de_json(payload, _telegram_app.bot)
+    
+    # Sử dụng run_coroutine_threadsafe để gửi update đến loop nền
     asyncio.run_coroutine_threadsafe(
         _telegram_app.process_update(update),
         _telegram_loop,
     )
 
 
+# ----------------------------------------------------------------------
+# ENDPOINTS
+# ----------------------------------------------------------------------
+
+# HEALTHCHECK (Route GET để kiểm tra trạng thái)
 @app.route("/", methods=["GET"])
 def healthcheck():
-    return jsonify({"status": "ok"}), 200
+    return jsonify({"status": "ok", "telegram_ready": _telegram_available}), 200
 
 
+# TELEGRAM WEBHOOK RECEIVER (POST)
 @app.route(TELEGRAM_WEBHOOK_PATH, methods=["POST"])
 def telegram_webhook_receiver():
+    """Endpoint lắng nghe và xử lý tin nhắn Telegram."""
     if not _telegram_available:
         return jsonify({"message": "Telegram webhook is not ready"}), 503
 
+    # Xác thực Secret Token
     secret_header = request.headers.get("X-Telegram-Bot-Api-Secret-Token")
     if WEBHOOK_SECRET and secret_header != WEBHOOK_SECRET:
         logger.warning("Rejected Telegram webhook due to secret mismatch.")
@@ -193,5 +217,9 @@ def sepay_webhook_receiver():
 
 
 if __name__ == "__main__":
-    print(f"Listening on http://0.0.0.0:5000{SEPAY_WEBHOOK_PATH}")
-    serve(app, host="0.0.0.0", port=5000)
+    # Chỉ chạy WAITRESS server khi file được gọi trực tiếp (Dev mode)
+    host = os.getenv("SEPAY_HOST", "0.0.0.0")
+    port = int(os.getenv("SEPAY_PORT", "5000"))
+    print(f"Listening on http://{host}:{port}{SEPAY_WEBHOOK_PATH}")
+    
+    serve(app, host=host, port=port)
