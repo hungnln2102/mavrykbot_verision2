@@ -6,6 +6,21 @@ from datetime import datetime
 from typing import Dict, Any, Optional
 from flask import Flask, request, jsonify
 from waitress import serve
+
+try:
+    from mavrykbot.bootstrap import ensure_project_root, ensure_env_loaded
+except ModuleNotFoundError as exc:
+    if exc.name not in {"mavrykbot", "mavrykbot.bootstrap"}:
+        raise
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+    from mavrykbot.bootstrap import ensure_project_root, ensure_env_loaded
+
+ensure_project_root()
+ensure_env_loaded()
+
 from mavrykbot.core.config import load_sepay_config
 from mavrykbot.core.database import db
 from mavrykbot.core.db_schema import PAYMENT_RECEIPT_TABLE, PaymentReceiptColumns
