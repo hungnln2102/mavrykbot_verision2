@@ -39,11 +39,11 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 
 SEPAY_WEBHOOK_PATH = "/api/payment/notify"
-DEFAULT_WEBHOOK_URL = "https://botapi.mavrykpremium.store/bot/webhook"
+DEFAULT_WEBHOOK_URL = "https://botapi.mavrykpremium.store/webhook"
 WEBHOOK_URL = (os.getenv("WEBHOOK_URL") or DEFAULT_WEBHOOK_URL).strip()
 WEBHOOK_SECRET = os.getenv("TELEGRAM_WEBHOOK_SECRET") or os.getenv("WEBHOOK_SECRET")
 _parsed_url = urlparse(WEBHOOK_URL) if WEBHOOK_URL else None
-TELEGRAM_WEBHOOK_PATH = (_parsed_url.path or "/bot/webhook") if _parsed_url else "/bot/webhook"
+TELEGRAM_WEBHOOK_PATH = (_parsed_url.path or "/webhook") if _parsed_url else "/webhook"
 
 try:
     SEPAY_CFG = load_sepay_config()

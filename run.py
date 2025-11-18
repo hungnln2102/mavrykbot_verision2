@@ -13,7 +13,7 @@ ensure_env_loaded()
 from mavrykbot.handlers.main import run_bot_webhook
 from mavrykbot.webhooks.sepay_webhook import SEPAY_WEBHOOK_PATH, app
 
-DEFAULT_WEBHOOK_URL = "https://botapi.mavrykpremium.store/bot/webhook"
+DEFAULT_WEBHOOK_URL = "https://botapi.mavrykpremium.store/webhook"
 
 
 def _start_sepay_server() -> None:

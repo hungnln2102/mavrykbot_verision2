@@ -6,7 +6,7 @@ import logging
 logging.basicConfig(level=logging.INFO)
 
 # URL webhook của bạn
-WEBHOOK_URL = "https://botapi.mavrykpremium.store/bot/webhook"
+WEBHOOK_URL = "https://botapi.mavrykpremium.store/webhook"
 
 # Dữ liệu mẫu (payload) mà dịch vụ thanh toán sẽ gửi.
 # BẠN CẦN ĐIỀU CHỈNH CẤU TRÚC NÀY
