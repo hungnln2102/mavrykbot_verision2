@@ -33,12 +33,11 @@ ensure_env_loaded()
 from mavrykbot.core.config import load_sepay_config
 from mavrykbot.core.database import db
 from mavrykbot.core.db_schema import PAYMENT_RECEIPT_TABLE, PaymentReceiptColumns
-from mavrykbot.handlers.main import build_application  # IMPORT HÀM BUILD APPLICATION
+from mavrykbot.handlers.main import build_application
 
 logger = logging.getLogger(__name__)
 app = Flask(__name__)
 
-# Tải cấu hình Webhook từ .env
 SEPAY_WEBHOOK_PATH = "/api/payment/notify"
 WEBHOOK_URL = (os.getenv("WEBHOOK_URL") or "").strip()
 WEBHOOK_SECRET = os.getenv("TELEGRAM_WEBHOOK_SECRET") or os.getenv("WEBHOOK_SECRET")
@@ -64,12 +63,12 @@ def _split_transaction_content(content: str) -> Tuple[str, str]:
 def verify_sepay_signature(request_body: bytes, signature: Optional[str]) -> bool:
     if not SEPAY_CFG or not SEPAY_CFG.webhook_secret or not signature:
         return False
-    expected_signature = hmac.new(
+    expected = hmac.new(
         SEPAY_CFG.webhook_secret.encode("utf-8"),
         request_body,
         hashlib.sha256,
     ).hexdigest()
-    return hmac.compare_digest(expected_signature, signature)
+    return hmac.compare_digest(expected, signature)
 
 
 def insert_payment_receipt(transaction_data: Dict[str, Any]) -> None:
@@ -105,49 +104,59 @@ def insert_payment_receipt(transaction_data: Dict[str, Any]) -> None:
 
 
 # ----------------------------------------------------------------------
-# Telegram webhook adapter (runs inside the same Gunicorn workers)
+# Telegram webhook integration
 # ----------------------------------------------------------------------
 
-# KHỞI TẠO APPLICATION MỘT LẦN
-_telegram_app: Application = build_application()
-_telegram_loop = asyncio.new_event_loop()
-_telegram_available = True
+_telegram_app: Optional[Application] = None
+_telegram_loop: Optional[asyncio.AbstractEventLoop] = None
+_telegram_available = False
+_telegram_lock = threading.Lock()
 
 
 def _start_telegram_bot() -> None:
-    """Khởi động asyncio loop trong luồng nền."""
+    assert _telegram_app and _telegram_loop
     asyncio.set_event_loop(_telegram_loop)
     try:
-        # Khởi tạo application và bắt đầu vòng lặp asyncio
         _telegram_loop.run_until_complete(_telegram_app.initialize())
         _telegram_loop.run_until_complete(_telegram_app.start())
-        
-        # Thiết lập webhook (dùng đường dẫn từ .env)
         if WEBHOOK_URL:
             _telegram_loop.run_until_complete(
                 _telegram_app.bot.set_webhook(WEBHOOK_URL, secret_token=WEBHOOK_SECRET)
             )
         logger.info("Telegram webhook dispatcher ready at %s", TELEGRAM_WEBHOOK_PATH)
+        global _telegram_available
+        _telegram_available = True
         _telegram_loop.run_forever()
     except Exception as exc:  # pragma: no cover
-        global _telegram_available
         _telegram_available = False
         logger.error("Failed to start Telegram bot loop: %s", exc, exc_info=True)
 
 
-# Bắt đầu luồng xử lý Webhook
-threading.Thread(target=_start_telegram_bot, name="telegram-webhook", daemon=True).start()
+def _ensure_telegram_initialized() -> None:
+    global _telegram_app, _telegram_loop
+    if _telegram_loop and _telegram_available:
+        return
+    with _telegram_lock:
+        if _telegram_loop:
+            return
+        _telegram_app = build_application()
+        _telegram_loop = asyncio.new_event_loop()
+        threading.Thread(
+            target=_start_telegram_bot,
+            name="telegram-webhook",
+            daemon=True,
+        ).start()
+
+
+@app.before_first_request
+def _bootstrap_services() -> None:
+    _ensure_telegram_initialized()
 
 
 def _dispatch_telegram_update(payload: Dict[str, Any]) -> None:
-    """Đồng bộ hóa việc gửi update đến vòng lặp asyncio của PTB."""
-    if not _telegram_available:
-        logger.error("Telegram loop is not available, skipping update dispatch.")
-        return
-        
+    if not (_telegram_app and _telegram_loop and _telegram_available):
+        raise RuntimeError("Telegram loop is not available")
     update = Update.de_json(payload, _telegram_app.bot)
-    
-    # Sử dụng run_coroutine_threadsafe để gửi update đến loop nền
     asyncio.run_coroutine_threadsafe(
         _telegram_app.process_update(update),
         _telegram_loop,
@@ -155,23 +164,22 @@ def _dispatch_telegram_update(payload: Dict[str, Any]) -> None:
 
 
 # ----------------------------------------------------------------------
-# ENDPOINTS
+# Routes
 # ----------------------------------------------------------------------
 
-# HEALTHCHECK (Route GET để kiểm tra trạng thái)
 @app.route("/", methods=["GET"])
 def healthcheck():
     return jsonify({"status": "ok", "telegram_ready": _telegram_available}), 200
 
 
-# TELEGRAM WEBHOOK RECEIVER (POST)
-@app.route(TELEGRAM_WEBHOOK_PATH, methods=["POST"])
+@app.route(TELEGRAM_WEBHOOK_PATH, methods=["GET", "POST"])
 def telegram_webhook_receiver():
-    """Endpoint lắng nghe và xử lý tin nhắn Telegram."""
+    _ensure_telegram_initialized()
+    if request.method == "GET":
+        return jsonify({"status": "ready" if _telegram_available else "starting"}), 200
     if not _telegram_available:
         return jsonify({"message": "Telegram webhook is not ready"}), 503
 
-    # Xác thực Secret Token
     secret_header = request.headers.get("X-Telegram-Bot-Api-Secret-Token")
     if WEBHOOK_SECRET and secret_header != WEBHOOK_SECRET:
         logger.warning("Rejected Telegram webhook due to secret mismatch.")
@@ -217,9 +225,7 @@ def sepay_webhook_receiver():
 
 
 if __name__ == "__main__":
-    # Chỉ chạy WAITRESS server khi file được gọi trực tiếp (Dev mode)
     host = os.getenv("SEPAY_HOST", "0.0.0.0")
     port = int(os.getenv("SEPAY_PORT", "5000"))
     print(f"Listening on http://{host}:{port}{SEPAY_WEBHOOK_PATH}")
-    
     serve(app, host=host, port=port)
