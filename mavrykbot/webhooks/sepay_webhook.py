@@ -97,6 +97,24 @@ def insert_payment_receipt(transaction_data: Dict[str, Any]) -> None:
 # =========================================================================
 # ENDPOINTS (ROUTES) CHO CẢ SEPAY VÀ TELEGRAM
 # =========================================================================
+# --- THÊM ROUTE XỬ LÝ TELEGRAM WEBHOOK ---
+
+# LƯU Ý: Đây là đường dẫn mà bạn đã thiết lập thành công trên Telegram API.
+@app.route('/webhook', methods=['POST'])
+def telegram_webhook_receiver():
+    logger.info(">>> TELEGRAM WEBHOOK RECEIVED SUCCESSFULLY <<<")
+    
+    if request.method == 'POST':
+        try:
+            update = request.get_json()
+            # BẠN CẦN THÊM LOGIC XỬ LÝ CHÍNH TẠI ĐÂY
+            
+            return '', 200 # Trả về 200 OK
+        except Exception as e:
+            logger.error(f"Error processing Telegram update: {e}", exc_info=True)
+            return '', 200 # Luôn trả về 200 cho Telegram để không lặp lại yêu cầu
+    
+    return 'Not Found', 404
 
 @app.route(SEPAY_WEBHOOK_PATH, methods=['POST'])
 def sepay_webhook_receiver():
