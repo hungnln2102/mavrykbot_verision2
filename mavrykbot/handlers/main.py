@@ -1,6 +1,6 @@
 """
-Điểm khởi chạy chính cho Bot Telegram.
-Tải cấu hình, đăng ký handlers và chạy bot ở chế độ Polling (phát triển).
+Telegram bot entry point.
+Sets up handlers and can run either in polling mode (dev) or webhook mode (production).
 """
 from __future__ import annotations
 
@@ -20,22 +20,8 @@ ensure_project_root()
 import logging
 import os
 from typing import Awaitable, Callable, Optional
-from mavrykbot.handlers.view_due_orders import test_due_orders_command
-from telegram import Update
-from telegram.ext import (
-    AIORateLimiter,
-    Application,
-    CallbackQueryHandler,
-    CommandHandler,
-    ContextTypes,
-    filters,
-)
+from urllib.parse import urlparse
 
-# ====================================================================
-# SỬA LỖI TƯƠNG THÍCH PYTHON-TELEGRAM-BOT 20.x (Nếu cần)
-# ====================================================================
-# Đây là phần code đã có trong main.py gốc của bạn, dùng để vá lỗi
-# tương thích với các phiên bản Python mới hơn.
 try:
     import telegram.ext as _ptb_ext
     from telegram.ext import (
@@ -65,57 +51,73 @@ try:
         _ptb_applicationbuilder.Application = patched_application
 except ImportError:
     pass
-# ====================================================================
 
+from telegram import Update
+from telegram.ext import (
+    AIORateLimiter,
+    Application,
+    CallbackQueryHandler,
+    CommandHandler,
+    ContextTypes,
+)
 
-# --- IMPORTS ĐÃ ĐƯỢC CHỈNH SỬA THEO CẤU TRÚC PACKAGE MỚI ---
-from mavrykbot.core.config import load_bot_config 
-from mavrykbot.handlers.menu import show_outer_menu, show_main_selector
-from mavrykbot.handlers.add_order import get_add_order_conversation_handler
-from mavrykbot.handlers.update_order import get_update_order_conversation_handler
-from mavrykbot.handlers.View_order_unpaid import get_unpaid_order_conversation_handler
+from mavrykbot.core.config import load_bot_config
 from mavrykbot.handlers.Payment_Supply import get_payment_supply_conversation_handler
+from mavrykbot.handlers.View_order_unpaid import get_unpaid_order_conversation_handler
+from mavrykbot.handlers.add_order import get_add_order_conversation_handler
+from mavrykbot.handlers.menu import show_main_selector, show_outer_menu
+from mavrykbot.handlers.update_order import get_update_order_conversation_handler
+from mavrykbot.handlers.view_due_orders import test_due_orders_command
 from mavrykbot.notifications.error_notifier import notify_error
-try:
-    # Giả định qr_conversation nằm trong create_qrcode.py
-    from mavrykbot.handlers.create_qrcode import qr_conversation 
-except ImportError:
-    # Dùng CommandHandler mặc định nếu file chưa tồn tại
-    qr_conversation = CommandHandler("qr_placeholder", lambda u, c: c.bot.send_message(u.effective_chat.id, "Tính năng QR chưa hoàn thiện."))
 
-# --- CẤU HÌNH LOGGING ---
+try:
+    from mavrykbot.handlers.create_qrcode import qr_conversation
+except ImportError:  # pragma: no cover - optional feature
+    qr_conversation = CommandHandler(
+        "qr_placeholder",
+        lambda update, context: context.bot.send_message(
+            update.effective_chat.id,
+            "QR feature is not available yet.",
+        ),
+    )
+
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO,
 )
 logger = logging.getLogger(__name__)
 
-# --- TẢI CẤU HÌNH BOT ---
-# BOT_TOKEN sẽ được tải khi mavrykbot.core.config được import
 BOT_TOKEN = load_bot_config().token
 
-# --- CẤU HÌNH CHUNG ---
 _admin_chat_id = os.getenv("ADMIN_CHAT_ID")
 AUTHORIZED_USER_ID: Optional[int] = int(_admin_chat_id) if _admin_chat_id else None
-DEFAULT_COMING_SOON = "Tính năng này đang được phát triển, vui lòng quay lại sau."
+DEFAULT_COMING_SOON = "Feature is under development."
 COMING_SOON_MESSAGES = {
-    "start_refund": "Hoàn tiền đang được phát triển.",
-    "update": "Tính năng xem/chỉnh đơn sẽ sớm mở lại.",
+    "start_refund": "Refund flow is under development.",
+    "update": "Order update feature will be back soon.",
 }
 
-# --- FILTERS ---
-def user_only_filter(func: Callable[[Update, ContextTypes.DEFAULT_TYPE], Awaitable[None]]):
-    """Decorator để chỉ cho phép user được cấp quyền sử dụng bot."""
+
+def user_only_filter(
+    func: Callable[[Update, ContextTypes.DEFAULT_TYPE], Awaitable[None]]
+):
+    """Decorator restricting bot access to the configured admin."""
+
     async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if AUTHORIZED_USER_ID is not None and update.effective_user.id != AUTHORIZED_USER_ID:
-            logger.info("Access denied for user %s (%s)", update.effective_user.id, update.effective_user.username)
+            logger.info(
+                "Access denied for user %s (%s)",
+                update.effective_user.id,
+                update.effective_user.username,
+            )
             return
         return await func(update, context)
+
     return wrapper
 
-# --- HELPER ---
+
 async def _send_coming_soon(update: Update, feature_key: str):
-    """Gửi tin nhắn thông báo tính năng sắp ra mắt."""
+    """Send placeholder message for unfinished flows."""
     message = COMING_SOON_MESSAGES.get(feature_key, DEFAULT_COMING_SOON)
     if update.callback_query:
         await update.callback_query.answer()
@@ -125,7 +127,6 @@ async def _send_coming_soon(update: Update, feature_key: str):
     logger.info("Sent coming-soon message for %s", feature_key)
 
 
-# --- HANDLERS ---
 @user_only_filter
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await show_outer_menu(update, context)
@@ -133,19 +134,15 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 @user_only_filter
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "Bot hiện chỉ hiển thị menu. Các chức năng khác đang được phát triển."
-    )
+    await update.message.reply_text("Please use /menu to interact with the bot.")
 
 
 @user_only_filter
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     data = query.data
-    
-    # Phản hồi query để loại bỏ spinner 'loading'
-    await query.answer() 
-    
+    await query.answer()
+
     if data == "menu_shop":
         await show_main_selector(update, context, edit=True)
         return
@@ -156,58 +153,82 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await show_main_selector(update, context, edit=True)
         return
     if data.startswith("action_") or data in {"nav_next", "nav_prev"}:
-        await query.answer("Vui long mo chuc nang /update truoc.", show_alert=True)
+        await query.answer("Please open /update first.", show_alert=True)
         return
     if data == "delete":
         return
     if data in {"add", "unpaid_orders", "exit_unpaid", "payment_source"}:
-        # Các callback này đã có ConversationHandler riêng xử lý
         return
-    
-    # Xử lý các nút tính năng đang phát triển
+
     await _send_coming_soon(update, data)
 
 
 async def application_error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Global PTB error handler that also pings the error topic."""
     logger.error("Unhandled exception while processing update.", exc_info=context.error)
-
-    error_message = "Bot gặp lỗi không xử lý được."
-    extra = {}
-    if update:
-        extra["update"] = str(update)
+    error_message = "Bot encountered an unexpected error."
+    extra = {"update": str(update)} if update else None
 
     try:
-        await notify_error(context.bot, error_message, exception=context.error, extra=extra if extra else None)
+        await notify_error(
+            context.bot,
+            error_message,
+            exception=context.error,
+            extra=extra,
+        )
     except Exception as exc:  # pragma: no cover
         logger.error("Failed to notify error topic: %s", exc, exc_info=True)
 
 
-def main() -> None:
+def build_application() -> Application:
     application = (
         Application.builder().token(BOT_TOKEN).rate_limiter(AIORateLimiter()).build()
     )
-    
-    # Đăng ký các Handler
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("menu", start))
     application.add_handler(CommandHandler("help", help_command))
-    
-    # Conversation Handlers
+
     application.add_handler(get_add_order_conversation_handler())
     application.add_handler(get_update_order_conversation_handler())
     application.add_handler(get_unpaid_order_conversation_handler())
     application.add_handler(get_payment_supply_conversation_handler())
-    application.add_handler(qr_conversation) 
-    
-    # Callback Query Handler (Xử lý các nút bấm)
+    application.add_handler(qr_conversation)
+
     application.add_handler(CallbackQueryHandler(button_callback))
     application.add_handler(CommandHandler("testjob", test_due_orders_command))
     application.add_error_handler(application_error_handler)
-    # --- CHẾ ĐỘ CHẠY: POLLING (Tối ưu cho phát triển trên Windows) ---
-    logger.info("Khởi động BOT ở chế độ Polling...")
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
-    # ----------------------------------------------------------------
+    return application
+
+
+def run_bot_polling() -> None:
+    logger.info("Starting Telegram bot in polling mode.")
+    build_application().run_polling(allowed_updates=Update.ALL_TYPES)
+
+
+def run_bot_webhook(
+    webhook_url: str,
+    listen: str = "0.0.0.0",
+    port: int = 8443,
+    webhook_path: Optional[str] = None,
+    secret_token: Optional[str] = None,
+) -> None:
+    if not webhook_url:
+        raise ValueError("webhook_url must be provided for webhook mode.")
+
+    parsed = urlparse(webhook_url)
+    url_path = webhook_path or parsed.path.lstrip("/") or ""
+    logger.info("Starting Telegram webhook server at %s:%s path=%s", listen, port, url_path)
+    build_application().run_webhook(
+        listen=listen,
+        port=port,
+        url_path=url_path,
+        webhook_url=webhook_url,
+        secret_token=secret_token,
+        allowed_updates=Update.ALL_TYPES,
+    )
+
+
+def main() -> None:
+    run_bot_polling()
 
 
 if __name__ == "__main__":
