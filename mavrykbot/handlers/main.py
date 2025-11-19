@@ -20,11 +20,6 @@ ensure_project_root()
 import logging
 import os
 from typing import Awaitable, Callable, Optional
-from urllib.parse import urlparse
-
-# ---------------------------
-# REMOVED: Old broken monkeypatching code
-# ---------------------------
 
 from telegram import Update
 from telegram.ext import (
@@ -154,9 +149,12 @@ async def application_error_handler(update: object, context: ContextTypes.DEFAUL
 
 
 def build_application() -> Application:
-    """Xây dựng và trả về đối tượng Application để sử dụng cho Webhook."""
+    """Xây dựng và trả về đối tượng Application để sử dụng cho Webhook (Flask integration)."""
     application = (
-        Application.builder().token(BOT_TOKEN).rate_limiter(AIORateLimiter()).build()
+        Application.builder()
+        .token(BOT_TOKEN)
+        .rate_limiter(AIORateLimiter())
+        .build()
     )
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("menu", start))
@@ -172,37 +170,3 @@ def build_application() -> Application:
     application.add_handler(CommandHandler("testjob", test_due_orders_command))
     application.add_error_handler(application_error_handler)
     return application
-
-
-def run_bot_webhook(
-    webhook_url: str,
-    listen: str,
-    port: int,
-    webhook_path: str | None = None,
-    secret_token: str | None = None,
-) -> None:
-    """
-    Convenience wrapper used by run.py to expose Telegram's webhook endpoint.
-    """
-
-    application = build_application()
-
-    derived_path = webhook_path
-    if not derived_path:
-        parsed = urlparse(webhook_url) if webhook_url else None
-        derived_path = parsed.path if parsed and parsed.path else "/webhook"
-    derived_path = derived_path.lstrip("/") or "webhook"
-
-    logger.info(
-        "Starting Telegram webhook listener on http://%s:%s/%s",
-        listen,
-        port,
-        derived_path,
-    )
-    application.run_webhook(
-        listen=listen,
-        port=port,
-        url_path=derived_path,
-        webhook_url=webhook_url,
-        secret_token=secret_token,
-    )

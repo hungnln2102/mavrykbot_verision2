@@ -23,7 +23,6 @@ except ModuleNotFoundError as exc:
         raise
     import sys
     from pathlib import Path
-
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
     from mavrykbot.bootstrap import ensure_env_loaded, ensure_project_root
 
@@ -58,7 +57,6 @@ except RuntimeError:
     logger.warning("SEPAY config not loaded.")
     SEPAY_CFG = None
 
-
 # ----------------------------------------------------------------------
 # VERIFY SEPAY SIGNATURE
 # ----------------------------------------------------------------------
@@ -77,7 +75,7 @@ def verify_sepay_signature(request_body: bytes, signature: Optional[str]) -> boo
 
 
 # ----------------------------------------------------------------------
-# TELEGRAM WEBHOOK
+# TELEGRAM WEBHOOK (ASYNC)
 # ----------------------------------------------------------------------
 
 _telegram_app: Optional[Application] = None
@@ -87,7 +85,7 @@ _telegram_lock = threading.Lock()
 
 
 def _start_telegram_bot() -> None:
-    """Start telegram webhook listener in background."""
+    """Starts Telegram webhook listener in a background async thread."""
     global _telegram_available
 
     assert _telegram_app and _telegram_loop
@@ -102,13 +100,13 @@ def _start_telegram_bot() -> None:
             _telegram_loop.run_until_complete(
                 _telegram_app.bot.set_webhook(
                     url=WEBHOOK_URL,
-                    secret_token=WEBHOOK_SECRET
+                    secret_token=WEBHOOK_SECRET,
                 )
             )
 
         logger.info("Telegram webhook ready at %s", TELEGRAM_WEBHOOK_PATH)
-
         _telegram_available = True
+
         _telegram_loop.run_forever()
 
     except Exception as exc:
@@ -117,7 +115,7 @@ def _start_telegram_bot() -> None:
 
 
 def _ensure_telegram_initialized() -> None:
-    """Initialize telegram bot once."""
+    """Ensures Telegram bot is initialized exactly once."""
     global _telegram_app, _telegram_loop
 
     if _telegram_loop and _telegram_available:
@@ -127,31 +125,29 @@ def _ensure_telegram_initialized() -> None:
         if _telegram_loop:
             return
 
-        _telegram_app = build_application()   # FIX: no arguments
+        _telegram_app = build_application()
         _telegram_loop = asyncio.new_event_loop()
 
         threading.Thread(
             target=_start_telegram_bot,
             name="telegram-webhook",
-            daemon=True
+            daemon=True,
         ).start()
 
 
-@app.before_first_request
-def _bootstrap_services() -> None:
-    _ensure_telegram_initialized()
+# ----------------------------------------------------------------------
+# FIX FOR FLASK 3.x (before_first_request removed)
+# ----------------------------------------------------------------------
 
+_bootstrap_done = False
 
-def _dispatch_telegram_update(payload: Dict[str, Any]) -> None:
-    if not (_telegram_app and _telegram_loop and _telegram_available):
-        raise RuntimeError("Telegram not ready")
-
-    update = Update.de_json(payload, _telegram_app.bot)
-
-    asyncio.run_coroutine_threadsafe(
-        _telegram_app.process_update(update),
-        _telegram_loop
-    )
+@app.before_request
+def _bootstrap_services():
+    """Bootstrap Telegram service only once when the first request arrives."""
+    global _bootstrap_done
+    if not _bootstrap_done:
+        _ensure_telegram_initialized()
+        _bootstrap_done = True
 
 
 # ----------------------------------------------------------------------
@@ -162,7 +158,7 @@ def _dispatch_telegram_update(payload: Dict[str, Any]) -> None:
 def healthcheck():
     return jsonify({
         "status": "ok",
-        "telegram_ready": _telegram_available
+        "telegram_ready": _telegram_available,
     }), 200
 
 
@@ -188,7 +184,11 @@ def telegram_webhook_receiver():
         return jsonify({"message": "Invalid JSON"}), 400
 
     try:
-        _dispatch_telegram_update(payload)
+        update = Update.de_json(payload, _telegram_app.bot)
+        asyncio.run_coroutine_threadsafe(
+            _telegram_app.process_update(update),
+            _telegram_loop
+        )
     except Exception as exc:
         logger.error("Telegram update dispatch failed: %s", exc)
         return jsonify({"message": "Internal error"}), 500
