@@ -158,5 +158,5 @@ qr_conversation = ConversationHandler(
         ASK_NOTE: [MessageHandler(filters.TEXT & ~filters.COMMAND, send_qr_image)],
     },
     fallbacks=[CallbackQueryHandler(cancel_qr, pattern='^cancel_qr$')],
-    per_message=False,
+    per_message=True,
 )

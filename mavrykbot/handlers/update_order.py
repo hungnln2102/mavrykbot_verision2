@@ -985,12 +985,12 @@ def get_update_order_conversation_handler() -> ConversationHandler:
                     lambda u, c: show_matched_order(u, c, "next"),
                     pattern="^nav_next$",
                 ),
-                CallbackQueryHandler(extend_order, pattern="^action_extend\|"),
-                CallbackQueryHandler(delete_order, pattern="^action_delete\|"),
-                CallbackQueryHandler(start_edit_update, pattern="^action_edit\|"),
+                CallbackQueryHandler(extend_order, pattern=r"^action_extend\|"),
+                CallbackQueryHandler(delete_order, pattern=r"^action_delete\|"),
+                CallbackQueryHandler(start_edit_update, pattern=r"^action_edit\|"),
             ],
             EDIT_CHOOSE_FIELD: [
-                CallbackQueryHandler(choose_field_to_edit, pattern="^edit\|"),
+                CallbackQueryHandler(choose_field_to_edit, pattern=r"^edit\|"),
                 CallbackQueryHandler(back_to_order_display, pattern="^back_to_order$"),
             ],
             EDIT_INPUT_SIMPLE: [
