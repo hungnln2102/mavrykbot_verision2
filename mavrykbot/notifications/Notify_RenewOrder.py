@@ -4,6 +4,7 @@ import logging
 from typing import Any, Mapping
 
 from telegram import Bot
+from telegram.constants import ParseMode
 
 from mavrykbot.core.config import load_topic_config
 from mavrykbot.core.utils import escape_mdv2

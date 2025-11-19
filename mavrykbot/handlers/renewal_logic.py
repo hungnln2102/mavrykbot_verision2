@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import datetime, timedelta
+from datetime import date as date_type, datetime, timedelta
 from decimal import Decimal
 
 from mavrykbot.core.database import db
@@ -24,9 +24,21 @@ logger = logging.getLogger(__name__)
 DATE_FMT = "%d/%m/%Y"
 
 
-def _parse_date(value: str) -> datetime | None:
+def _parse_date(value) -> datetime | None:
+    if not value:
+        return None
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, date_type):
+        return datetime.combine(value, datetime.min.time())
+    value_str = str(value).strip()
+    for fmt in (DATE_FMT, "%Y-%m-%d", "%Y/%m/%d"):
+        try:
+            return datetime.strptime(value_str, fmt)
+        except Exception:
+            continue
     try:
-        return datetime.strptime(value.strip(), DATE_FMT)
+        return datetime.fromisoformat(value_str)
     except Exception:
         return None
 
@@ -140,6 +152,16 @@ def _as_bool(value) -> bool:
     if isinstance(value, str):
         return value.strip().lower() in {"true", "t", "1", "yes"}
     return bool(value)
+
+
+def _round_to_thousands(value: int | Decimal) -> int:
+    numeric = int(Decimal(value))
+    if numeric == 0:
+        return 0
+    remainder = numeric % 1000
+    if remainder == 0:
+        return numeric
+    return numeric + (1000 - remainder) if remainder >= 500 else numeric - remainder
 
 
 def _update_order(
