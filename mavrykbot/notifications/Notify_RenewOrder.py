@@ -41,7 +41,7 @@ def _format_currency(value: Any) -> str:
 def _build_slot_section(order_details: Mapping[str, Any]) -> str:
     slot_data = order_details.get("SLOT")
     if slot_data and str(slot_data).strip():
-        return f"\n\\- *Slot:* {escape_mdv2(slot_data)}"
+        return f"🎟️ *Slot:* {escape_mdv2(slot_data)}"
     return ""
 
 
@@ -88,22 +88,30 @@ async def send_renewal_success_notification(
         gia_nhap = _format_currency(order_details.get("GIA_NHAP"))
         gia_ban = _format_currency(order_details.get("GIA_BAN"))
 
-        slot_section = _build_slot_section(order_details)
+        slot_line = _build_slot_section(order_details)
 
-        message = (
-            "*GIA HAN TU DONG THANH CONG*\n\n"
-            "*Thong Tin Don Hang*\n"
-            f"\\- *Ma Don:* `{ma_don_hang}`\n"
-            f"\\- *San pham:* {san_pham}\n"
-            f"\\- *Thong tin:* {thong_tin_don}"
-            f"{slot_section}\n"
-            f"\\- *Ngay DK Moi:* {ngay_dang_ky}\n"
-            f"\\- *Het Han Moi:* *{ngay_het_han}*\n"
-            f"\\- *Gia Ban:* {escape_mdv2(gia_ban)}d\n\n"
-            "*Thong Tin Nguon*\n"
-            f"\\- *Nguon:* {nguon}\n"
-            f"\\- *Gia Nhap:* {escape_mdv2(gia_nhap)}d"
+        lines = [
+            "✅ *GIA HẠN TỰ ĐỘNG THÀNH CÔNG*",
+            "┏━━━ *Thông Tin Đơn Hàng* ━━━┓",
+            f"🆔 *Mã Đơn:* `{ma_don_hang}`",
+            f"📦 *Sản Phẩm:* {san_pham}",
+            f"📧 *Thông tin:* {thong_tin_don}",
+        ]
+        if slot_line:
+            lines.append(slot_line)
+        lines.extend(
+            [
+                f"📅 *Ngày Đăng Ký:* {ngay_dang_ky}",
+                f"⏰ *Hết Hạn:* *{ngay_het_han}*",
+                f"💰 *Giá Bán:* {escape_mdv2(gia_ban)}d",
+                "",
+                "┗━━━ *Thông Tin Nhà Cung Cấp* ━━━┛",
+                f"🏷️ *Nhà Cung Cấp:* {nguon}",
+                f"💵 *Giá Nhập:* {escape_mdv2(gia_nhap)}d",
+            ]
         )
+
+        message = "\n".join(lines)
 
         await bot.send_message(
             chat_id=target_chat_id,
@@ -112,13 +120,13 @@ async def send_renewal_success_notification(
             message_thread_id=target_topic_id,
         )
         logger.info(
-            "Da gui thong bao gia han cho %s vao topic %s.",
+            "Đã gửi thành công thông báo gia hạn cho %s vào topic Renew Order.",
             order_details.get("ID_DON_HANG"),
             target_topic_id,
         )
     except Exception as exc:  # pragma: no cover - defensive logging
         logger.error(
-            "Loi khi gui thong bao gia han %s: %s",
+            "Lỗi khi gửi thông báo gia hạn %s: %s",
             order_details.get("ID_DON_HANG"),
             exc,
             exc_info=True,
