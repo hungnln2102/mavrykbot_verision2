@@ -94,17 +94,6 @@ def _insert_payment_receipt(order_codes: Iterable[str], payment_data: Mapping[st
     logger.info("Logged payment receipt for orders: %s", ma_don_str or "N/A")
 
 
-def _mark_order_paid(order_code: str) -> None:
-    sql = f"""
-        UPDATE {ORDER_LIST_TABLE}
-        SET
-            {OrderListColumns.TINH_TRANG} = %s,
-            {OrderListColumns.CHECK_FLAG} = 'True'
-        WHERE {OrderListColumns.ID_DON_HANG} = %s
-    """
-    db.execute(sql, ("Da Thanh Toan", order_code))
-
-
 def _send_success_notification(order_details: Mapping[str, object]) -> None:
     """Send the full renewal summary when Sepay renewal succeeds."""
     try:
@@ -150,11 +139,6 @@ def process_payment_payload(payment_data: Mapping[str, object]) -> None:
             return
 
         for ma_don in ma_don_list:
-            try:
-                _mark_order_paid(ma_don)
-            except Exception as exc:
-                logger.warning("Could not mark %s as paid: %s", ma_don, exc)
-
             success, details, process_type = run_renewal(ma_don)
             if success and process_type == "renewal":
                 logger.info("Renewal succeeded for %s. Sending Telegram notice.", ma_don)

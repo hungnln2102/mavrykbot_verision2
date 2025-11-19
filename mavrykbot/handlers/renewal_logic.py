@@ -22,6 +22,7 @@ from mavrykbot.core.utils import chuan_hoa_gia, normalize_product_duration
 logger = logging.getLogger(__name__)
 
 DATE_FMT = "%d/%m/%Y"
+DB_DATE_FMT = "%Y/%m/%d"
 
 
 def _parse_date(value) -> datetime | None:
@@ -45,6 +46,10 @@ def _parse_date(value) -> datetime | None:
 
 def _format_date(dt: datetime) -> str:
     return dt.strftime(DATE_FMT)
+
+
+def _format_db_date(dt: datetime) -> str:
+    return dt.strftime(DB_DATE_FMT)
 
 
 def tinh_ngay_het_han(ngay_dang_ky_str: str, so_ngay_str: str) -> str:
@@ -250,21 +255,25 @@ def run_renewal(order_id: str):
     highest_price = _get_highest_price(product_id)
     final_gia_ban = _calc_gia_ban(order_id, highest_price, pct_ctv, pct_khach, final_gia_nhap)
 
+    final_gia_nhap = _round_to_thousands(final_gia_nhap)
+    final_gia_ban = _round_to_thousands(final_gia_ban)
+
     ngay_bat_dau_moi_dt = het_han_dt + timedelta(days=1)
     ngay_bat_dau_moi = _format_date(ngay_bat_dau_moi_dt)
+    ngay_bat_dau_moi_db = _format_db_date(ngay_bat_dau_moi_dt)
     ngay_het_han_moi = tinh_ngay_het_han(ngay_bat_dau_moi, str(so_ngay_gia_han))
+    ngay_het_han_moi_dt = _parse_date(ngay_het_han_moi) or (ngay_bat_dau_moi_dt + timedelta(days=so_ngay_gia_han))
+    ngay_het_han_moi_db = _format_db_date(ngay_het_han_moi_dt)
 
-    status = tinh_trang or ""
-    status_lower = status.strip().lower()
-    new_status = "Chưa Thanh Toán" if status_lower == "đã thanh toán" else status
-    new_check_flag = False if status_lower == "đã thanh toán" else _as_bool(check_flag)
+    new_status = "Chưa Thanh Toán"
+    new_check_flag = False
 
     try:
         _update_order(
             order_id,
-            ngay_bat_dau_moi,
+            ngay_bat_dau_moi_db,
             so_ngay_gia_han,
-            ngay_het_han_moi,
+            ngay_het_han_moi_db,
             final_gia_nhap,
             final_gia_ban,
             new_status,

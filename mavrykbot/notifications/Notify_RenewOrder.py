@@ -41,7 +41,7 @@ def _format_currency(value: Any) -> str:
 def _build_slot_section(order_details: Mapping[str, Any]) -> str:
     slot_data = order_details.get("SLOT")
     if slot_data and str(slot_data).strip():
-        return f"\n- *Slot:* {escape_mdv2(slot_data)}"
+        return f"\n\\- *Slot:* {escape_mdv2(slot_data)}"
     return ""
 
 
@@ -93,16 +93,16 @@ async def send_renewal_success_notification(
         message = (
             "*GIA HAN TU DONG THANH CONG*\n\n"
             "*Thong Tin Don Hang*\n"
-            f"- *Ma Don:* `{ma_don_hang}`\n"
-            f"- *San pham:* {san_pham}\n"
-            f"- *Thong tin:* {thong_tin_don}"
+            f"\\- *Ma Don:* `{ma_don_hang}`\n"
+            f"\\- *San pham:* {san_pham}\n"
+            f"\\- *Thong tin:* {thong_tin_don}"
             f"{slot_section}\n"
-            f"- *Ngay DK Moi:* {ngay_dang_ky}\n"
-            f"- *Het Han Moi:* *{ngay_het_han}*\n"
-            f"- *Gia Ban:* {escape_mdv2(gia_ban)}d\n\n"
+            f"\\- *Ngay DK Moi:* {ngay_dang_ky}\n"
+            f"\\- *Het Han Moi:* *{ngay_het_han}*\n"
+            f"\\- *Gia Ban:* {escape_mdv2(gia_ban)}d\n\n"
             "*Thong Tin Nguon*\n"
-            f"- *Nguon:* {nguon}\n"
-            f"- *Gia Nhap:* {escape_mdv2(gia_nhap)}d"
+            f"\\- *Nguon:* {nguon}\n"
+            f"\\- *Gia Nhap:* {escape_mdv2(gia_nhap)}d"
         )
 
         await bot.send_message(
@@ -149,11 +149,11 @@ async def send_renewal_status_notification(
     try:
         message_lines = [
             "*Thong bao quy trinh gia han*",
-            f"- *Ma don:* `{escape_mdv2(order_code)}`",
-            f"- *Trang thai:* {escape_mdv2(status)}",
+            f"\\- *Ma don:* `{escape_mdv2(order_code)}`",
+            f"\\- *Trang thai:* {escape_mdv2(status)}",
         ]
         if details:
-            message_lines.append(f"- *Chi tiet:* {escape_mdv2(details)}")
+            message_lines.append(f"\\- *Chi tiet:* {escape_mdv2(str(details))}")
 
         await bot.send_message(
             chat_id=target_chat_id,
