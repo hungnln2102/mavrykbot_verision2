@@ -1,2 +1,8 @@
 python-telegram-bot
 psycopg2-binary
+Flask
+waitress
+python-dotenv
+python-dateutil
+requests
+python-decouple
