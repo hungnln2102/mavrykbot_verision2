@@ -33,9 +33,11 @@ ensure_env_loaded()
 from mavrykbot.core.config import load_sepay_config
 from mavrykbot.core.database import insert_payment_receipt
 from mavrykbot.handlers.main import build_application
+from mavrykbot.webhooks.payment_webhook import payment_webhook_blueprint
 
 logger = logging.getLogger(__name__)
 app = Flask(__name__)
+app.register_blueprint(payment_webhook_blueprint)
 
 # ----------------------------------------------------------------------
 # CONFIG
@@ -86,6 +88,8 @@ _telegram_lock = threading.Lock()
 
 def _start_telegram_bot() -> None:
     """Start telegram webhook listener in background."""
+    global _telegram_available
+
     assert _telegram_app and _telegram_loop
 
     asyncio.set_event_loop(_telegram_loop)
@@ -104,14 +108,11 @@ def _start_telegram_bot() -> None:
 
         logger.info("Telegram webhook ready at %s", TELEGRAM_WEBHOOK_PATH)
 
-        global _telegram_available
         _telegram_available = True
-
         _telegram_loop.run_forever()
 
     except Exception as exc:
         logger.error("Telegram startup failed: %s", exc, exc_info=True)
-        global _telegram_available
         _telegram_available = False
 
 

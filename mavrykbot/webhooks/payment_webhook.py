@@ -2,13 +2,16 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import re
+import threading
 from datetime import datetime
-from typing import Iterable
+from typing import Iterable, Mapping
 
-from aiohttp import web
+from flask import Blueprint, jsonify, request
 from telegram import Bot
 
+from mavrykbot.core.config import load_bot_config
 from mavrykbot.core.database import db
 from mavrykbot.core.db_schema import (
     ORDER_LIST_TABLE,
@@ -19,11 +22,30 @@ from mavrykbot.core.db_schema import (
 from mavrykbot.handlers.renewal_logic import run_renewal
 from mavrykbot.notifications.Notify_RenewOrder import send_renewal_success_notification
 
+__all__ = ["payment_webhook_blueprint", "PAYMENT_WEBHOOK_PATH"]
+
 logger = logging.getLogger(__name__)
 
-WEBHOOK_SECRET = "ef3ff711d58d498aa6147d60eb3923df"
+PAYMENT_WEBHOOK_SECRET = (
+    os.getenv("PAYMENT_WEBHOOK_SECRET") or os.getenv("WEBHOOK_SECRET") or "change-this-secret"
+)
+PAYMENT_WEBHOOK_PATH = f"/bot/payment_sepay/{PAYMENT_WEBHOOK_SECRET}"
 
-routes = web.RouteTableDef()
+payment_webhook_blueprint = Blueprint("payment_webhook", __name__)
+
+_bot_instance: Bot | None = None
+_bot_lock = threading.Lock()
+
+
+def _get_bot() -> Bot:
+    """Instantiate a Telegram Bot lazily so Waitress threads can reuse it."""
+    global _bot_instance
+    if _bot_instance:
+        return _bot_instance
+    with _bot_lock:
+        if _bot_instance is None:
+            _bot_instance = Bot(load_bot_config().token)
+    return _bot_instance
 
 
 def extract_ma_don(text: str | None) -> list[str]:
@@ -49,12 +71,12 @@ def _parse_transaction_date(value: str | None) -> datetime:
     return datetime.utcnow()
 
 
-def _insert_payment_receipt(order_codes: Iterable[str], payment_data: dict) -> None:
+def _insert_payment_receipt(order_codes: Iterable[str], payment_data: Mapping[str, object]) -> None:
     ma_don_str = " - ".join(order_codes)
     ngay_thanh_toan = _parse_transaction_date(payment_data.get("transactionDate")).date()
     so_tien = _normalize_amount(payment_data.get("transferAmount"))
     nguoi_gui = str(payment_data.get("accountNumber") or "").strip()
-    noi_dung = payment_data.get("content", "")
+    noi_dung = str(payment_data.get("content") or "")
 
     sql = f"""
         INSERT INTO {PAYMENT_RECEIPT_TABLE} (
@@ -77,13 +99,26 @@ def _mark_order_paid(order_code: str) -> None:
             {OrderListColumns.CHECK_FLAG} = 'True'
         WHERE {OrderListColumns.ID_DON_HANG} = %s
     """
-    db.execute(sql, ("Đã Thanh Toán", order_code))
+    db.execute(sql, ("Da Thanh Toan", order_code))
 
 
-def process_payment(bot: Bot, payment_data: dict, loop: asyncio.AbstractEventLoop) -> None:
-    """Run inside a worker thread so the aiohttp handler can return quickly."""
+def _send_renewal_notification(order_details: Mapping[str, object]) -> None:
+    """Fire-and-forget helper executed inside a worker thread."""
     try:
-        content = payment_data.get("content", "")
+        asyncio.run(send_renewal_success_notification(_get_bot(), order_details))
+    except Exception as exc:  # pragma: no cover - defensive logging
+        logger.error("Failed to send renewal notification: %s", exc, exc_info=True)
+
+
+def process_payment_payload(payment_data: Mapping[str, object]) -> None:
+    """
+    Process Sepay webhook data: log receipts, mark orders, and trigger renewals.
+
+    This function is blocking and should run in a worker thread so the HTTP
+    response can be returned quickly.
+    """
+    try:
+        content = str(payment_data.get("content") or "")
         ma_don_list = extract_ma_don(content)
         logger.info("Processing payment webhook for content: %s", content)
 
@@ -104,11 +139,9 @@ def process_payment(bot: Bot, payment_data: dict, loop: asyncio.AbstractEventLoo
 
             success, details, process_type = run_renewal(ma_don)
             if success and process_type == "renewal":
-                logger.info("Renewal succeeded for %s. Scheduling Telegram notice.", ma_don)
-                asyncio.run_coroutine_threadsafe(
-                    send_renewal_success_notification(bot, details),
-                    loop,
-                )
+                logger.info("Renewal succeeded for %s. Sending Telegram notice.", ma_don)
+                if details:
+                    _send_renewal_notification(details)
             else:
                 logger.info(
                     "Renewal skipped for %s (status=%s, details=%s).",
@@ -120,22 +153,23 @@ def process_payment(bot: Bot, payment_data: dict, loop: asyncio.AbstractEventLoo
         logger.error("Critical error while processing payment webhook: %s", exc, exc_info=True)
 
 
-@routes.post(f"/bot/payment_sepay/{WEBHOOK_SECRET}")
-async def handle_payment(request: web.Request) -> web.StreamResponse:
-    bot = request.app["bot"]
+@payment_webhook_blueprint.post(PAYMENT_WEBHOOK_PATH)
+def handle_payment_webhook():
+    """
+    Lightweight HTTP handler that validates the payload and schedules processing.
+    Designed to run inside the same Flask application served by Waitress.
+    """
     try:
-        data = await request.json()
-    except Exception as exc:
-        logger.error("Invalid JSON payload: %s", exc)
-        return web.Response(text="Bad Request", status=400)
+        payload = request.get_json(force=True)
+    except Exception:
+        logger.exception("Invalid JSON payload received from payment provider.")
+        return jsonify({"message": "Invalid JSON"}), 400
 
-    current_loop = asyncio.get_running_loop()
-    asyncio.create_task(
-        asyncio.to_thread(
-            process_payment,
-            bot,
-            data,
-            current_loop,
-        )
-    )
-    return web.Response(text="Webhook received", status=200)
+    threading.Thread(
+        target=process_payment_payload,
+        args=(payload or {},),
+        name="payment-webhook-worker",
+        daemon=True,
+    ).start()
+
+    return jsonify({"message": "OK"}), 200
