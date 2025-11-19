@@ -20,7 +20,10 @@ from mavrykbot.core.db_schema import (
     PaymentReceiptColumns,
 )
 from mavrykbot.handlers.renewal_logic import run_renewal
-from mavrykbot.notifications.Notify_RenewOrder import send_renewal_success_notification
+from mavrykbot.notifications.Notify_RenewOrder import (
+    send_renewal_status_notification,
+    send_renewal_success_notification,
+)
 
 __all__ = ["payment_webhook_blueprint", "PAYMENT_WEBHOOK_PATH"]
 
@@ -102,12 +105,27 @@ def _mark_order_paid(order_code: str) -> None:
     db.execute(sql, ("Da Thanh Toan", order_code))
 
 
-def _send_renewal_notification(order_details: Mapping[str, object]) -> None:
-    """Fire-and-forget helper executed inside a worker thread."""
+def _send_success_notification(order_details: Mapping[str, object]) -> None:
+    """Send the full renewal summary when Sepay renewal succeeds."""
     try:
         asyncio.run(send_renewal_success_notification(_get_bot(), order_details))
     except Exception as exc:  # pragma: no cover - defensive logging
-        logger.error("Failed to send renewal notification: %s", exc, exc_info=True)
+        logger.error("Failed to send renewal success notification: %s", exc, exc_info=True)
+
+
+def _send_status_notification(order_code: str, status: str, detail_text: str | None = None) -> None:
+    """Send a lightweight status entry (success/skip/error) to the renewal topic."""
+    try:
+        asyncio.run(
+            send_renewal_status_notification(
+                _get_bot(),
+                order_code,
+                status,
+                details=detail_text,
+            )
+        )
+    except Exception as exc:  # pragma: no cover - defensive logging
+        logger.error("Failed to send renewal status notification: %s", exc, exc_info=True)
 
 
 def process_payment_payload(payment_data: Mapping[str, object]) -> None:
@@ -141,14 +159,19 @@ def process_payment_payload(payment_data: Mapping[str, object]) -> None:
             if success and process_type == "renewal":
                 logger.info("Renewal succeeded for %s. Sending Telegram notice.", ma_don)
                 if details:
-                    _send_renewal_notification(details)
+                    _send_success_notification(details)
+                else:
+                    _send_status_notification(ma_don, "success", "Khong co chi tiet don hang.")
             else:
+                detail_text = details if isinstance(details, str) else str(details or "")
+                status_text = process_type or "skipped"
                 logger.info(
                     "Renewal skipped for %s (status=%s, details=%s).",
                     ma_don,
-                    process_type,
-                    details,
+                    status_text,
+                    detail_text,
                 )
+                _send_status_notification(ma_don, status_text, detail_text or None)
     except Exception as exc:  # pragma: no cover - defensive logging
         logger.error("Critical error while processing payment webhook: %s", exc, exc_info=True)
 

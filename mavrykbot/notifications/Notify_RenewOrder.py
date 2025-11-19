@@ -8,7 +8,7 @@ from telegram import Bot
 from mavrykbot.core.config import load_topic_config
 from mavrykbot.core.utils import escape_mdv2
 
-__all__ = ["send_renewal_success_notification"]
+__all__ = ["send_renewal_success_notification", "send_renewal_status_notification"]
 
 logger = logging.getLogger(__name__)
 
@@ -119,6 +119,51 @@ async def send_renewal_success_notification(
         logger.error(
             "Loi khi gui thong bao gia han %s: %s",
             order_details.get("ID_DON_HANG"),
+            exc,
+            exc_info=True,
+        )
+
+
+async def send_renewal_status_notification(
+    bot: Bot,
+    order_code: str,
+    status: str,
+    *,
+    details: str | None = None,
+    target_chat_id: str | None = None,
+    target_topic_id: int | None = None,
+) -> None:
+    """
+    Send a short summary of the renewal status (success/skip/error) to the renewal topic.
+    Useful when Sepay payment webhook handles an order but renewal logic does not run.
+    """
+    if not TOPIC_CONFIG.send_renewal_to_topic:
+        return
+
+    target_chat_id, target_topic_id = _resolve_target(target_chat_id, target_topic_id)
+    if not target_chat_id or target_topic_id is None:
+        logger.error("Cannot send renewal status notification: missing chat/topic configuration.")
+        return
+
+    try:
+        message_lines = [
+            "*Thong bao quy trinh gia han*",
+            f"- *Ma don:* `{escape_mdv2(order_code)}`",
+            f"- *Trang thai:* {escape_mdv2(status)}",
+        ]
+        if details:
+            message_lines.append(f"- *Chi tiet:* {escape_mdv2(details)}")
+
+        await bot.send_message(
+            chat_id=target_chat_id,
+            text="\n".join(message_lines),
+            parse_mode=ParseMode.MARKDOWN_V2,
+            message_thread_id=target_topic_id,
+        )
+    except Exception as exc:  # pragma: no cover - defensive logging
+        logger.error(
+            "Loi khi gui thong bao trang thai gia han %s: %s",
+            order_code,
             exc,
             exc_info=True,
         )

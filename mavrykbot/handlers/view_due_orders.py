@@ -7,7 +7,9 @@ from io import BytesIO
 from typing import Optional
 
 import requests
+from telegram import Update
 from telegram.constants import ParseMode
+from telegram.error import BadRequest, NetworkError, TimedOut
 from telegram.ext import ContextTypes
 
 from mavrykbot.core.database import db
@@ -319,31 +321,39 @@ def test_view_due_orders(limit: int = 5) -> None:
         return
     print(_format_due_orders_console(orders))
 
+async def _safe_reply(update: Update, text: str, *, markdown: bool = False) -> None:
+    """Send a reply, swallowing temporary network errors."""
+    if update.message is None:
+        return
+    try:
+        await update.message.reply_text(
+            text if not markdown else escape_mdv2(text),
+            parse_mode=ParseMode.MARKDOWN_V2 if markdown else None,
+        )
+    except (TimedOut, NetworkError) as exc:
+        logger.warning("Telegram timeout while replying: %s", exc)
+    except Exception as exc:  # pragma: no cover - extra safety
+        logger.error("Failed to send reply: %s", exc, exc_info=True)
+
+
 async def test_due_orders_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Xử lý lệnh /testjob để chạy test_view_due_orders và báo cáo kết quả."""
     if update.message is None:
         return
 
-    # Lấy đối số limit từ lệnh, mặc định là 5
     try:
         limit = int(context.args[0]) if context.args else 5
-    except ValueError:
+    except (ValueError, IndexError):
         limit = 5
-    
-    await update.message.reply_text(f"Đang chạy test_view_due_orders với limit={limit}. Kiểm tra console/log...")
+
+    await _safe_reply(
+        update,
+        f"Đang chạy test_view_due_orders với limit={limit}. Kiểm tra console/log...",
+    )
 
     try:
-        # Gọi hàm test đã có sẵn
-        # Lưu ý: Hàm test_view_due_orders chỉ in ra console (print),
-        # nên bot sẽ không nhận được kết quả trực tiếp trừ khi bạn chỉnh sửa hàm đó.
         test_view_due_orders(limit=limit)
-        await update.message.reply_text(
-            escape_mdv2(f"Test job đã chạy xong. Kết quả được ghi vào log/console."),
-            parse_mode=ParseMode.MARKDOWN_V2,
-        )
+        await _safe_reply(update, "Test job đã chạy xong. Kết quả được ghi vào log/console.", markdown=True)
     except Exception as exc:
         logger.error("Lỗi khi chạy test job: %s", exc, exc_info=True)
-        await update.message.reply_text(
-            escape_mdv2(f"Lỗi khi chạy test job: {exc}"),
-            parse_mode=ParseMode.MARKDOWN_V2,
-        )
+        await _safe_reply(update, f"Lỗi khi chạy test job: {exc}", markdown=True)
