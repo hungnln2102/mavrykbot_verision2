@@ -1,61 +1,79 @@
-"""Simple PostgreSQL helper built on top of psycopg2."""
-from __future__ import annotations
-
 import psycopg2
-from psycopg2 import pool
-from contextlib import contextmanager
-from typing import Any, Iterable, Optional
-
-from mavrykbot.core.config import load_database_config
-
+import psycopg2.pool
+import json
+import os
 
 class Database:
-    """Lazy connection pool used by the bot handlers."""
-
-    def __init__(self) -> None:
-        cfg = load_database_config()
-        self._pool = pool.SimpleConnectionPool(
+    def __init__(self):
+        self._pool = psycopg2.pool.SimpleConnectionPool(
             minconn=1,
             maxconn=5,
-            host=cfg.host,
-            port=cfg.port,
-            database=cfg.name,
-            user=cfg.user,
-            password=cfg.password,
+            host=os.getenv("DB_HOST"),
+            port=os.getenv("DB_PORT"),
+            dbname=os.getenv("DB_NAME"),
+            user=os.getenv("DB_USER"),
+            password=os.getenv("DB_PASSWORD"),
         )
 
-    @contextmanager
-    def _get_connection(self):
-        # Lấy kết nối từ pool
+    def execute(self, query, params=None):
         conn = self._pool.getconn()
         try:
-            yield conn
-            conn.commit()
-        except:
-            conn.rollback()
-            raise
+            with conn.cursor() as cur:
+                cur.execute(query, params)
+                conn.commit()
         finally:
-            # Trả lại kết nối vào pool
             self._pool.putconn(conn)
 
-    def execute(self, query: str, params: Optional[Iterable[Any]] = None) -> None:
-        with self._get_connection() as conn, conn.cursor() as cursor:
-            cursor.execute(query, params or ())
+    def fetch_one(self, query, params=None):
+        conn = self._pool.getconn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(query, params)
+                return cur.fetchone()
+        finally:
+            self._pool.putconn(conn)
 
-    def fetch_one(
-        self, query: str, params: Optional[Iterable[Any]] = None
-    ) -> Optional[tuple[Any, ...]]:
-        with self._get_connection() as conn, conn.cursor() as cursor:
-            cursor.execute(query, params or ())
-            return cursor.fetchone()
+    def fetch_all(self, query, params=None):
+        conn = self._pool.getconn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(query, params)
+                return cur.fetchall()
+        finally:
+            self._pool.putconn(conn)
 
-    def fetch_all(
-        self, query: str, params: Optional[Iterable[Any]] = None
-    ) -> list[tuple[Any, ...]]:
-        with self._get_connection() as conn, conn.cursor() as cursor:
-            cursor.execute(query, params or ())
-            return cursor.fetchall()
-
-
-# Shared instance that bot handlers can import
 db = Database()
+
+# -----------------------------
+# Payment insert function
+# -----------------------------
+def insert_payment_receipt(data: dict):
+    """
+    Saves a Sepay webhook payment into database.
+    """
+
+    query = """
+        INSERT INTO payment_receipts
+            (transaction_id, amount, event_type, event_time, raw_data)
+        VALUES
+            (%s, %s, %s, %s, %s)
+        ON CONFLICT (transaction_id) DO NOTHING;
+    """
+
+    transaction_id = data.get("transaction_id")
+    amount = data.get("amount")
+    event_type = data.get("type") or data.get("event_type")
+    event_time = data.get("timestamp") or data.get("created_at")
+
+    raw_json = json.dumps(data, ensure_ascii=False)
+
+    db.execute(
+        query,
+        (
+            transaction_id,
+            amount,
+            event_type,
+            event_time,
+            raw_json,
+        ),
+    )
