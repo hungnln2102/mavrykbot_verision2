@@ -22,46 +22,9 @@ import os
 from typing import Awaitable, Callable, Optional
 from urllib.parse import urlparse
 
-try:
-    import telegram.ext as _ptb_ext
-    from telegram.ext import (
-        _application as _ptb_application,
-        _applicationbuilder as _ptb_applicationbuilder,
-        _updater as _ptb_updater,
-    )
-
-    def _ensure_slots(cls, *extra_slots):
-        slots = getattr(cls, "__slots__", ())
-        missing = tuple(slot for slot in extra_slots if slot not in slots)
-        if not isinstance(slots, tuple) or not missing:
-            return cls
-        patched = type(cls.__name__, (cls,), {"__slots__": slots + missing})
-        patched.__module__ = cls.__module__
-        return patched
-
-    patched_updater = _ensure_slots(_ptb_updater.Updater, "__polling_cleanup_cb")
-    if patched_updater is not _ptb_updater.Updater:
-        _ptb_updater.Updater = patched_updater
-        _ptb_applicationbuilder.Updater = patched_updater
-        _ptb_ext.Updater = patched_updater
-
-    patched_application = _ensure_slots(_ptb_application.Application, "__weakref__")
-    if patched_application is not _ptb_application.Application:
-        _ptb_application.Application = patched_application
-        _ptb_applicationbuilder.Application = patched_application
-        _ptb_ext.Application = patched_application
-
-    if not hasattr(_ptb_application.Application, "resolve_allowed_updates"):
-        def _resolve_allowed_updates(self, allowed_updates=None):  # type: ignore[override]
-            return allowed_updates
-
-        _ptb_application.Application.resolve_allowed_updates = _resolve_allowed_updates
-        _ptb_applicationbuilder.Application.resolve_allowed_updates = (
-            _resolve_allowed_updates
-        )
-        _ptb_ext.Application.resolve_allowed_updates = _resolve_allowed_updates
-except ImportError:
-    pass
+# ---------------------------
+# REMOVED: Old broken monkeypatching code
+# ---------------------------
 
 from telegram import Update
 from telegram.ext import (
@@ -220,8 +183,6 @@ def run_bot_webhook(
 ) -> None:
     """
     Convenience wrapper used by run.py to expose Telegram's webhook endpoint.
-    Falls back gracefully on older python-telegram-bot versions that miss
-    ``resolve_allowed_updates`` by keeping the call on ``Application`` optional.
     """
 
     application = build_application()
