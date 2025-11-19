@@ -53,7 +53,7 @@ TELEGRAM_WEBHOOK_PATH = (_parsed_url.path or "/webhook") if _parsed_url else "/w
 try:
     SEPAY_CFG = load_sepay_config()
 except RuntimeError:
-    logger.warning("SEPAY config not fully loaded. Webhook verification may fail.")
+    logger.warning("SEPAY config not loaded.")
     SEPAY_CFG = None
 
 
@@ -85,17 +85,15 @@ _telegram_lock = threading.Lock()
 
 
 def _start_telegram_bot() -> None:
-    """Start telegram webhook listener in a background thread."""
+    """Start telegram webhook listener in background."""
     assert _telegram_app and _telegram_loop
 
     asyncio.set_event_loop(_telegram_loop)
 
     try:
-        # Initialize bot
         _telegram_loop.run_until_complete(_telegram_app.initialize())
         _telegram_loop.run_until_complete(_telegram_app.start())
 
-        # Set webhook
         if WEBHOOK_URL:
             _telegram_loop.run_until_complete(
                 _telegram_app.bot.set_webhook(
@@ -104,7 +102,7 @@ def _start_telegram_bot() -> None:
                 )
             )
 
-        logger.info("Telegram webhook ready on %s", TELEGRAM_WEBHOOK_PATH)
+        logger.info("Telegram webhook ready at %s", TELEGRAM_WEBHOOK_PATH)
 
         global _telegram_available
         _telegram_available = True
@@ -112,13 +110,13 @@ def _start_telegram_bot() -> None:
         _telegram_loop.run_forever()
 
     except Exception as exc:
-        logger.error("Failed to start Telegram bot: %s", exc, exc_info=True)
+        logger.error("Telegram startup failed: %s", exc, exc_info=True)
         global _telegram_available
         _telegram_available = False
 
 
 def _ensure_telegram_initialized() -> None:
-    """Initialize telegram background thread once."""
+    """Initialize telegram bot once."""
     global _telegram_app, _telegram_loop
 
     if _telegram_loop and _telegram_available:
@@ -128,13 +126,13 @@ def _ensure_telegram_initialized() -> None:
         if _telegram_loop:
             return
 
-        _telegram_app = build_application()
+        _telegram_app = build_application()   # FIX: no arguments
         _telegram_loop = asyncio.new_event_loop()
 
         threading.Thread(
             target=_start_telegram_bot,
             name="telegram-webhook",
-            daemon=True,
+            daemon=True
         ).start()
 
 
@@ -145,12 +143,13 @@ def _bootstrap_services() -> None:
 
 def _dispatch_telegram_update(payload: Dict[str, Any]) -> None:
     if not (_telegram_app and _telegram_loop and _telegram_available):
-        raise RuntimeError("Telegram is not ready")
+        raise RuntimeError("Telegram not ready")
 
     update = Update.de_json(payload, _telegram_app.bot)
 
     asyncio.run_coroutine_threadsafe(
-        _telegram_app.process_update(update), _telegram_loop
+        _telegram_app.process_update(update),
+        _telegram_loop
     )
 
 
@@ -166,12 +165,10 @@ def healthcheck():
     }), 200
 
 
-# TELEGRAM WEBHOOK RECEIVER
 @app.route(TELEGRAM_WEBHOOK_PATH, methods=["GET", "POST"])
 def telegram_webhook_receiver():
     _ensure_telegram_initialized()
 
-    # GET = healthcheck
     if request.method == "GET":
         return jsonify({
             "status": "ready" if _telegram_available else "starting"
@@ -180,54 +177,45 @@ def telegram_webhook_receiver():
     if not _telegram_available:
         return jsonify({"message": "Telegram not ready"}), 503
 
-    # Validate secret header
     secret_header = request.headers.get("X-Telegram-Bot-Api-Secret-Token")
     if WEBHOOK_SECRET and secret_header != WEBHOOK_SECRET:
-        logger.warning("Telegram secret mismatch, rejected.")
         return jsonify({"message": "Forbidden"}), 403
 
-    # Parse payload
     try:
         payload = request.get_json(force=True)
     except Exception:
         return jsonify({"message": "Invalid JSON"}), 400
 
-    # Dispatch update
     try:
         _dispatch_telegram_update(payload)
     except Exception as exc:
-        logger.error("Telegram dispatch error: %s", exc, exc_info=True)
-        return jsonify({"message": "Internal Error"}), 500
+        logger.error("Telegram update dispatch failed: %s", exc)
+        return jsonify({"message": "Internal error"}), 500
 
     return jsonify({"message": "OK"}), 200
 
 
-# SEPAY PAYMENT WEBHOOK
 @app.route(SEPAY_WEBHOOK_PATH, methods=["POST"])
 def sepay_webhook_receiver():
     raw_body = request.get_data()
     signature = request.headers.get("X-SEPAY-SIGNATURE")
 
     if not verify_sepay_signature(raw_body, signature):
-        logger.error("Sepay signature verification failed.")
         return jsonify({"message": "Invalid Signature"}), 403
 
     try:
         data = json.loads(raw_body.decode())
         transaction_data = data.get("transaction")
-
         if not transaction_data:
             return jsonify({"message": "Missing transaction"}), 400
-
     except json.JSONDecodeError:
         return jsonify({"message": "Invalid JSON"}), 400
 
     try:
         insert_payment_receipt(transaction_data)
         return jsonify({"message": "OK"}), 200
-
     except Exception as exc:
-        logger.error("Failed to save payment: %s", exc, exc_info=True)
+        logger.error("Error saving payment: %s", exc)
         return jsonify({"message": "Internal Error"}), 500
 
 

@@ -49,6 +49,17 @@ try:
     if patched_application is not _ptb_application.Application:
         _ptb_application.Application = patched_application
         _ptb_applicationbuilder.Application = patched_application
+        _ptb_ext.Application = patched_application
+
+    if not hasattr(_ptb_application.Application, "resolve_allowed_updates"):
+        def _resolve_allowed_updates(self, allowed_updates=None):  # type: ignore[override]
+            return allowed_updates
+
+        _ptb_application.Application.resolve_allowed_updates = _resolve_allowed_updates
+        _ptb_applicationbuilder.Application.resolve_allowed_updates = (
+            _resolve_allowed_updates
+        )
+        _ptb_ext.Application.resolve_allowed_updates = _resolve_allowed_updates
 except ImportError:
     pass
 
@@ -198,3 +209,39 @@ def build_application() -> Application:
     application.add_handler(CommandHandler("testjob", test_due_orders_command))
     application.add_error_handler(application_error_handler)
     return application
+
+
+def run_bot_webhook(
+    webhook_url: str,
+    listen: str,
+    port: int,
+    webhook_path: str | None = None,
+    secret_token: str | None = None,
+) -> None:
+    """
+    Convenience wrapper used by run.py to expose Telegram's webhook endpoint.
+    Falls back gracefully on older python-telegram-bot versions that miss
+    ``resolve_allowed_updates`` by keeping the call on ``Application`` optional.
+    """
+
+    application = build_application()
+
+    derived_path = webhook_path
+    if not derived_path:
+        parsed = urlparse(webhook_url) if webhook_url else None
+        derived_path = parsed.path if parsed and parsed.path else "/webhook"
+    derived_path = derived_path.lstrip("/") or "webhook"
+
+    logger.info(
+        "Starting Telegram webhook listener on http://%s:%s/%s",
+        listen,
+        port,
+        derived_path,
+    )
+    application.run_webhook(
+        listen=listen,
+        port=port,
+        url_path=derived_path,
+        webhook_url=webhook_url,
+        secret_token=secret_token,
+    )

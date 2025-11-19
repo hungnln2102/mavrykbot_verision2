@@ -77,7 +77,7 @@ def _mark_order_paid(order_code: str) -> None:
             {OrderListColumns.CHECK_FLAG} = 'True'
         WHERE {OrderListColumns.ID_DON_HANG} = %s
     """
-    db.execute(sql, ("Da Thanh Toan", order_code))
+    db.execute(sql, ("Đã Thanh Toán", order_code))
 
 
 def process_payment(bot: Bot, payment_data: dict, loop: asyncio.AbstractEventLoop) -> None:
