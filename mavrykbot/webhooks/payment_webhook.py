@@ -82,8 +82,25 @@ def _get_payload_value(data: Mapping[str, object], *keys: str) -> object | None:
 
 
 def _normalize_amount(value) -> int:
-    digits = re.sub(r"[^\d]", "", str(value or ""))
-    return int(digits) if digits.isdigit() else 0
+    """
+    Convert numeric/decimal/str to int, discarding any fractional part.
+    Suitable for numeric(15,2) amounts.
+    """
+    try:
+        text = str(value or "").strip()
+        if not text:
+            return 0
+        # Remove non-numeric chars except decimal separators, then drop fractional part
+        cleaned = re.sub(r"[^\d.,-]", "", text)
+        # Normalize to dot and split
+        cleaned = cleaned.replace(",", ".")
+        if "." in cleaned:
+            cleaned = cleaned.split(".", 1)[0]
+        digits = re.sub(r"[^\d-]", "", cleaned)
+        return int(digits) if digits not in ("", "-", "--") else 0
+    except Exception:
+        digits = re.sub(r"[^\d]", "", str(value or ""))
+        return int(digits) if digits.isdigit() else 0
 
 
 def _normalize_source_name(value: str | None) -> str:
@@ -171,7 +188,8 @@ def _resolve_import_from_order(order_code: str) -> Tuple[Optional[int], Optional
     if amount is None or amount <= 0:
         amount = order.get("gia_nhap") or 0
 
-    return source_id, amount if amount and amount > 0 else None
+    amount_int = _normalize_amount(amount)
+    return source_id, amount_int if amount_int > 0 else None
 
 
 def _fetch_supply_price(source_id: int, product_id: int) -> Optional[int]:
