@@ -146,19 +146,19 @@ async def send_renewal_status_notification(
     Send a short summary of the renewal status (success/skip/error) to the renewal topic.
     Useful when Sepay payment webhook handles an order but renewal logic does not run.
     """
-    if not TOPIC_CONFIG.send_renewal_to_topic:
+    if not TOPIC_CONFIG.send_error_to_topic and not TOPIC_CONFIG.send_renewal_to_topic:
         return
 
-    target_chat_id, target_topic_id = _resolve_target(target_chat_id, target_topic_id)
+    target_chat_id, target_topic_id = _resolve_error_target(target_chat_id, target_topic_id)
     if not target_chat_id or target_topic_id is None:
         logger.error("Cannot send renewal status notification: missing chat/topic configuration.")
         return
 
     try:
         message_lines = [
-            "*Thong bao quy trinh gia han*",
-            f"\\- *Ma don:* `{escape_mdv2(order_code)}`",
-            f"\\- *Trang thai:* {escape_mdv2(status)}",
+            "*Thông Báo Lỗi Khi Gia Hạn*",
+            f"\\- Mã Đơn:* `{escape_mdv2(order_code)}`",
+            f"\\- *Trạng Thái:* {escape_mdv2(status)}",
         ]
         if details:
             message_lines.append(f"\\- *Chi tiet:* {escape_mdv2(str(details))}")
@@ -171,8 +171,18 @@ async def send_renewal_status_notification(
         )
     except Exception as exc:  # pragma: no cover - defensive logging
         logger.error(
-            "Loi khi gui thong bao trang thai gia han %s: %s",
+            "Lỗi khi gửi thông báo trạng thái gia hạn %s: %s",
             order_code,
             exc,
             exc_info=True,
         )
+def _resolve_error_target(chat_id: str | None, topic_id: int | None) -> tuple[str | None, int | None]:
+    resolved_chat = chat_id or TOPIC_CONFIG.error_group_id or TOPIC_CONFIG.renewal_group_id
+    topic_source = topic_id if topic_id is not None else (
+        TOPIC_CONFIG.error_topic_id if TOPIC_CONFIG.error_topic_id is not None else TOPIC_CONFIG.renewal_topic_id
+    )
+    try:
+        resolved_topic = int(topic_source) if topic_source is not None else None
+    except (TypeError, ValueError):
+        resolved_topic = None
+    return resolved_chat, resolved_topic
