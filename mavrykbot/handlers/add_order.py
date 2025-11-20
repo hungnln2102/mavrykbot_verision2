@@ -762,13 +762,13 @@ async def hoan_tat_don(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
 
         except Exception as e:
             logger.error(f"Loi khi ghi don hang vao PostgreSQL: {e}", exc_info=True)
-    await safe_send_md(
-        context.bot,
-        chat_id,
-        md(f"?? Loi khi ghi don hang vao PostgreSQL: {e}"),
-        try_plain=True,
-    )
-    return await end_add(update, context, success=False)
+            await safe_send_md(
+                context.bot,
+                chat_id,
+                md(f"Can not insert order to PostgreSQL: {e}"),
+                try_plain=True,
+            )
+            return await end_add(update, context, success=False)
 
         ma_don_final = info.get('ma_don','')
         caption = (
