@@ -154,15 +154,15 @@ async def send_renewal_status_notification(
         logger.error("Cannot send renewal status notification: missing chat/topic configuration.")
         return
 
+
     try:
         message_lines = [
-            "*Thông Báo Lỗi Khi Gia Hạn*",
-            f"\\- Mã Đơn:* `{escape_mdv2(order_code)}`",
-            f"\\- *Trạng Thái:* {escape_mdv2(status)}",
+            "*Thong Bao Loi Khi Gia Han*",
+            f"\\- *Ma Don:* `{escape_mdv2(order_code)}`",
+            f"\\- *Trang Thai:* {escape_mdv2(status)}",
         ]
         if details:
             message_lines.append(f"\\- *Chi tiet:* {escape_mdv2(str(details))}")
-
         await bot.send_message(
             chat_id=target_chat_id,
             text="\n".join(message_lines),
@@ -171,11 +171,12 @@ async def send_renewal_status_notification(
         )
     except Exception as exc:  # pragma: no cover - defensive logging
         logger.error(
-            "Lỗi khi gửi thông báo trạng thái gia hạn %s: %s",
+            'Loi khi gui thong bao trang thai gia han %s: %s',
             order_code,
             exc,
             exc_info=True,
         )
+
 def _resolve_error_target(chat_id: str | None, topic_id: int | None) -> tuple[str | None, int | None]:
     resolved_chat = chat_id or TOPIC_CONFIG.error_group_id or TOPIC_CONFIG.renewal_group_id
     topic_source = topic_id if topic_id is not None else (

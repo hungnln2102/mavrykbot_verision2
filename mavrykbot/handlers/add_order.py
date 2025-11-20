@@ -721,23 +721,24 @@ async def hoan_tat_don(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         
         ngay_het_han_dt = tinh_ngay_het_han(ngay_bat_dau_str, so_ngay)
         
-        # Ghi vào PostgreSQL
+
+        # Ghi vao PostgreSQL
         try:
             sql_query = f"""
                 INSERT INTO {ORDER_LIST_TABLE} (
-                    {OrderListColumns.ID_DON_HANG}, {OrderListColumns.SAN_PHAM}, 
+                    {OrderListColumns.ID_DON_HANG}, {OrderListColumns.SAN_PHAM},
                     {OrderListColumns.THONG_TIN_SAN_PHAM}, {OrderListColumns.KHACH_HANG},
-                    {OrderListColumns.LINK_LIEN_HE}, {OrderListColumns.SLOT}, 
+                    {OrderListColumns.LINK_LIEN_HE}, {OrderListColumns.SLOT},
                     {OrderListColumns.NGAY_DANG_KI}, {OrderListColumns.SO_NGAY_DA_DANG_KI},
-                    {OrderListColumns.HET_HAN}, {OrderListColumns.NGUON}, 
-                    {OrderListColumns.GIA_NHAP}, {OrderListColumns.GIA_BAN}, 
+                    {OrderListColumns.HET_HAN}, {OrderListColumns.NGUON},
+                    {OrderListColumns.GIA_NHAP}, {OrderListColumns.GIA_BAN},
                     {OrderListColumns.NOTE}, {OrderListColumns.TINH_TRANG},
                     {OrderListColumns.CHECK_FLAG}
                 ) VALUES (
                     %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
                 )
             """
-            
+
             params = (
                 info.get("ma_don", ""),
                 info.get("ma_chon", info.get("ten_san_pham_raw", "")),
@@ -745,25 +746,30 @@ async def hoan_tat_don(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
                 info.get("khach_hang", ""),
                 info.get("link_khach", ""),
                 info.get("slot", ""),
-                ngay_bat_dau_dt,            
+                ngay_bat_dau_dt,
                 so_ngay,
-                ngay_het_han_dt,            
+                ngay_het_han_dt,
                 info.get("nguon", ""),
-                info.get("gia_nhap_value", 0), 
-                gia_ban_value,              
+                info.get("gia_nhap_value", 0),
+                gia_ban_value,
                 info.get("note", ""),
-                 "Chưa Thanh Toán",
-                 None
-             )
-            
+                "Chua Thanh Toan",
+                None,
+            )
+
             db.execute(sql_query, params)
+            logger.info("Inserted order %s into order_list", params[0])
 
         except Exception as e:
-            logger.error(f"Lỗi khi ghi đơn hàng vào PostgreSQL: {e}")
-            await safe_edit_md(context.bot, chat_id, main_message_id, md(f"❌ Lỗi khi ghi đơn hàng vào PostgreSQL: {e}"))
-            return await end_add(update, context, success=False)
-        
-        
+            logger.error(f"Loi khi ghi don hang vao PostgreSQL: {e}", exc_info=True)
+    await safe_send_md(
+        context.bot,
+        chat_id,
+        md(f"?? Loi khi ghi don hang vao PostgreSQL: {e}"),
+        try_plain=True,
+    )
+    return await end_add(update, context, success=False)
+
         ma_don_final = info.get('ma_don','')
         caption = (
             f"✅ Đơn hàng `{escape_mdv2(ma_don_final)}` đã được tạo thành công\\!\n\n"
