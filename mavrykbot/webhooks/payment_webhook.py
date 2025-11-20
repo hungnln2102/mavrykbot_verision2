@@ -100,24 +100,78 @@ def _strip_accents(value: str) -> str:
     return "".join(ch for ch in unicodedata.normalize("NFD", value) if unicodedata.category(ch) != "Mn")
 
 
-def _find_product_id_for_orders(order_codes: Iterable[str]) -> Optional[int]:
+def _fetch_order_by_code(order_code: str) -> Optional[Mapping[str, object]]:
+    sql = f"""
+        SELECT
+            {OrderListColumns.SAN_PHAM},
+            {OrderListColumns.NGUON},
+            {OrderListColumns.GIA_NHAP}
+        FROM {ORDER_LIST_TABLE}
+        WHERE LOWER({OrderListColumns.ID_DON_HANG}) = LOWER(%s)
+        LIMIT 1
     """
-    Given a list of order codes, find the first matching product_id
-    (via product_price) for use when looking up supply_price.
+    row = db.fetch_one(sql, (order_code,))
+    if not row:
+        return None
+    san_pham, nguon, gia_nhap = row
+    return {
+        "san_pham": san_pham or "",
+        "nguon": nguon or "",
+        "gia_nhap": _normalize_amount(gia_nhap),
+    }
+
+
+def _find_source_id_by_name(name: str | None) -> Optional[int]:
+    """Find supply.id by source_name, matching case-insensitive and allowing leading @ optional."""
+    if not name:
+        return None
+    original = _normalize_source_name(name)
+    stripped = original.lstrip("@")
+    sql = f"""
+        SELECT {SupplyColumns.ID}, {SupplyColumns.SOURCE_NAME}
+        FROM {SUPPLY_TABLE}
+        WHERE LOWER(TRIM({SupplyColumns.SOURCE_NAME})) IN (%s, %s)
+        LIMIT 1
     """
-    for code in order_codes:
-        sql = f"""
-            SELECT pp.{ProductPriceColumns.ID}
-            FROM {ORDER_LIST_TABLE} ol
-            JOIN {PRODUCT_PRICE_TABLE} pp
-                ON LOWER(pp.{ProductPriceColumns.SAN_PHAM}) = LOWER(ol.{OrderListColumns.SAN_PHAM})
-            WHERE LOWER(ol.{OrderListColumns.ID_DON_HANG}) = LOWER(%s)
-            LIMIT 1
-        """
-        row = db.fetch_one(sql, (code,))
-        if row and row[0]:
-            return int(row[0])
-    return None
+    row = db.fetch_one(sql, (original, stripped))
+    return int(row[0]) if row and row[0] is not None else None
+
+
+def _find_product_id_by_name(san_pham: str | None) -> Optional[int]:
+    if not san_pham:
+        return None
+    sql = f"""
+        SELECT {ProductPriceColumns.ID}
+        FROM {PRODUCT_PRICE_TABLE}
+        WHERE LOWER({ProductPriceColumns.SAN_PHAM}) = LOWER(%s)
+        LIMIT 1
+    """
+    row = db.fetch_one(sql, (san_pham,))
+    return int(row[0]) if row and row[0] is not None else None
+
+
+def _resolve_import_from_order(order_code: str) -> Tuple[Optional[int], Optional[int]]:
+    """
+    From an order code, determine source_id and import amount:
+    - source_id from order.nguon -> supply.id
+    - product_id from order.san_pham -> product_price.id
+    - import from supply_price.price for (source_id, product_id)
+    - fallback to order.gia_nhap when no supply_price.
+    """
+    order = _fetch_order_by_code(order_code)
+    if not order:
+        return None, None
+
+    source_id = _find_source_id_by_name(order.get("nguon"))
+    product_id = _find_product_id_by_name(order.get("san_pham"))
+
+    amount = None
+    if source_id and product_id:
+        amount = _fetch_supply_price(source_id, product_id)
+    if amount is None or amount <= 0:
+        amount = order.get("gia_nhap") or 0
+
+    return source_id, amount if amount and amount > 0 else None
 
 
 def _fetch_supply_price(source_id: int, product_id: int) -> Optional[int]:
@@ -273,26 +327,17 @@ def process_payment_payload(payment_data: Mapping[str, object]) -> None:
             logger.error("Failed to log payment receipt: %s", exc, exc_info=True)
 
         try:
-            source_id, source_name = _find_source_from_content(content)
-            product_id = _find_product_id_for_orders(ma_don_list)
-            supply_price_value: Optional[int] = None
-            if source_id and product_id:
-                supply_price_value = _fetch_supply_price(source_id, product_id)
-
-            # Fallback to transfer amount only if no supply price found
-            amount_value = supply_price_value
-            if amount_value is None:
-                amount_value = _normalize_amount(_get_payload_value(payment_data, "transferAmount", "amount_in", "amount"))
-
-            if source_id and amount_value and amount_value > 0:
-                _sync_payment_supply(source_id, amount_value)
-            else:
-                logger.info(
-                    "No matching source/price found (source=%s, product_id=%s, amount=%s).",
-                    source_name,
-                    product_id,
-                    amount_value,
-                )
+            for ma_don in ma_don_list:
+                source_id, amount_value = _resolve_import_from_order(ma_don)
+                if source_id and amount_value and amount_value > 0:
+                    _sync_payment_supply(source_id, amount_value)
+                else:
+                    logger.info(
+                        "No payment_supply update for order %s (source_id=%s, amount=%s).",
+                        ma_don,
+                        source_id,
+                        amount_value,
+                    )
         except Exception as exc:
             logger.error("Failed to sync payment_supply from webhook: %s", exc, exc_info=True)
 

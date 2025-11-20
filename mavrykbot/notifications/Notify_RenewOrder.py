@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any, Mapping
 
 from telegram import Bot
 from telegram.constants import ParseMode
+from telegram.error import NetworkError, RetryAfter, TimedOut
 
 from mavrykbot.core.config import load_topic_config
 from mavrykbot.core.utils import escape_mdv2
@@ -155,27 +157,40 @@ async def send_renewal_status_notification(
         return
 
 
-    try:
-        message_lines = [
-            "*Thong Bao Loi Khi Gia Han*",
-            f"\\- *Ma Don:* `{escape_mdv2(order_code)}`",
-            f"\\- *Trang Thai:* {escape_mdv2(status)}",
-        ]
-        if details:
-            message_lines.append(f"\\- *Chi tiet:* {escape_mdv2(str(details))}")
-        await bot.send_message(
-            chat_id=target_chat_id,
-            text="\n".join(message_lines),
-            parse_mode=ParseMode.MARKDOWN_V2,
-            message_thread_id=target_topic_id,
-        )
-    except Exception as exc:  # pragma: no cover - defensive logging
-        logger.error(
-            'Loi khi gui thong bao trang thai gia han %s: %s',
-            order_code,
-            exc,
-            exc_info=True,
-        )
+    message_lines = [
+        "*Thong Bao Loi Khi Gia Han*",
+        f"\\- *Ma Don:* `{escape_mdv2(order_code)}`",
+        f"\\- *Trang Thai:* {escape_mdv2(status)}",
+    ]
+    if details:
+        message_lines.append(f"\\- *Chi tiet:* {escape_mdv2(str(details))}")
+
+    payload = "\n".join(message_lines)
+
+    for attempt in range(3):
+        try:
+            await bot.send_message(
+                chat_id=target_chat_id,
+                text=payload,
+                parse_mode=ParseMode.MARKDOWN_V2,
+                message_thread_id=target_topic_id,
+            )
+            return
+        except RetryAfter as exc:  # pragma: no cover - transient
+            delay = int(getattr(exc, "retry_after", 5)) or 5
+            logger.warning("RetryAfter while sending renewal status, sleeping %s seconds (attempt %s/3)", delay, attempt + 1)
+            await asyncio.sleep(delay)
+        except (TimedOut, NetworkError) as exc:  # pragma: no cover - transient
+            logger.warning("Network timeout when sending renewal status (attempt %s/3): %s", attempt + 1, exc)
+            await asyncio.sleep(2)
+        except Exception as exc:  # pragma: no cover - defensive logging
+            logger.error(
+                "Loi khi gui thong bao trang thai gia han %s: %s",
+                order_code,
+                exc,
+                exc_info=True,
+            )
+            return
 
 def _resolve_error_target(chat_id: str | None, topic_id: int | None) -> tuple[str | None, int | None]:
     resolved_chat = chat_id or TOPIC_CONFIG.error_group_id or TOPIC_CONFIG.renewal_group_id
