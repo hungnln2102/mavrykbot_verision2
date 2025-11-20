@@ -327,10 +327,11 @@ def process_payment_payload(payment_data: Mapping[str, object]) -> None:
             logger.error("Failed to log payment receipt: %s", exc, exc_info=True)
 
         try:
+            source_totals: dict[int, int] = {}
             for ma_don in ma_don_list:
                 source_id, amount_value = _resolve_import_from_order(ma_don)
                 if source_id and amount_value and amount_value > 0:
-                    _sync_payment_supply(source_id, amount_value)
+                    source_totals[source_id] = source_totals.get(source_id, 0) + int(amount_value)
                 else:
                     logger.info(
                         "No payment_supply update for order %s (source_id=%s, amount=%s).",
@@ -338,6 +339,9 @@ def process_payment_payload(payment_data: Mapping[str, object]) -> None:
                         source_id,
                         amount_value,
                     )
+
+            for sid, total_amount in source_totals.items():
+                _sync_payment_supply(sid, total_amount)
         except Exception as exc:
             logger.error("Failed to sync payment_supply from webhook: %s", exc, exc_info=True)
 
