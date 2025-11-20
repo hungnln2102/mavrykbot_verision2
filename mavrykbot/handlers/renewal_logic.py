@@ -265,7 +265,7 @@ def run_renewal(order_id: str):
     ngay_het_han_moi_dt = _parse_date(ngay_het_han_moi) or (ngay_bat_dau_moi_dt + timedelta(days=so_ngay_gia_han))
     ngay_het_han_moi_db = _format_db_date(ngay_het_han_moi_dt)
 
-    new_status = "Chưa Thanh Toán"
+    new_status = "Chua Thanh Toan"
     new_check_flag = False
 
     try:

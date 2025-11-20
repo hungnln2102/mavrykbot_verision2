@@ -4,6 +4,7 @@ import logging
 import re
 import urllib.parse
 from dataclasses import dataclass
+from datetime import datetime
 from io import BytesIO
 from typing import List, Tuple
 
@@ -331,14 +332,20 @@ async def start_payment_supply(update: Update, context: ContextTypes.DEFAULT_TYP
     return VIEWING
 
 
-def _update_payment_supply(payment_id: int, paid_value: int) -> None:
+def _update_payment_supply(payment_id: int, paid_value: int, current_round: str | None) -> None:
+    today_str = datetime.now().strftime("%d/%m/%Y")
+    if current_round and str(current_round).strip():
+        new_round = f"{current_round} - {today_str}"
+    else:
+        new_round = today_str
     sql = f"""
         UPDATE {PAYMENT_SUPPLY_TABLE}
         SET {PaymentSupplyColumns.STATUS} = %s,
-            {PaymentSupplyColumns.PAID} = %s
+            {PaymentSupplyColumns.PAID} = %s,
+            {PaymentSupplyColumns.ROUND} = %s
         WHERE {PaymentSupplyColumns.ID} = %s
     """
-    db.execute(sql, (PAYMENT_PAID_STATUS, paid_value, payment_id))
+    db.execute(sql, (PAYMENT_PAID_STATUS, paid_value, new_round, payment_id))
 
 
 def _mark_orders_paid(order_ids: List[int]) -> None:
@@ -383,7 +390,7 @@ async def handle_source_paid(update: Update, context: ContextTypes.DEFAULT_TYPE)
     override_amount = entry.override_amount if (entry.override_amount is not None and entry.override_amount > 0) else None
     paid_value = override_amount or order_sum or entry.expected_amount
     try:
-        _update_payment_supply(entry.payment_id, paid_value)
+        _update_payment_supply(entry.payment_id, paid_value, entry.round_label)
         _mark_orders_paid(order_ids)
     except Exception as exc:
         logger.error("Lỗi khi cập nhật trạng thái thanh toán %s: %s", entry.source_name, exc, exc_info=True)
