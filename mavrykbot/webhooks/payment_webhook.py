@@ -6,7 +6,7 @@ import os
 import re
 import threading
 import unicodedata
-from datetime import datetime
+from datetime import datetime, date
 from typing import Iterable, Mapping, Tuple, Optional
 
 from flask import Blueprint, jsonify, request
@@ -115,6 +115,65 @@ def _strip_accents(value: str) -> str:
     if not value:
         return ""
     return "".join(ch for ch in unicodedata.normalize("NFD", value) if unicodedata.category(ch) != "Mn")
+
+
+def _coerce_date(value) -> Optional[date]:
+    if value is None:
+        return None
+    if isinstance(value, date):
+        return value
+    if isinstance(value, datetime):
+        return value.date()
+    for fmt in ("%Y-%m-%d", "%Y-%m-%d %H:%M:%S", "%d/%m/%Y"):
+        try:
+            return datetime.strptime(str(value), fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+def _days_left(het_han) -> int:
+    expiry = _coerce_date(het_han)
+    if not expiry:
+        return 9999
+    return (expiry - date.today()).days
+
+
+def _fetch_order_state(order_code: str) -> Optional[tuple[str, object, object, int]]:
+    sql = f"""
+        SELECT {OrderListColumns.TINH_TRANG}, {OrderListColumns.CHECK_FLAG}, {OrderListColumns.HET_HAN}, {OrderListColumns.ID}
+        FROM {ORDER_LIST_TABLE}
+        WHERE LOWER({OrderListColumns.ID_DON_HANG}) = LOWER(%s)
+        LIMIT 1
+    """
+    row = db.fetch_one(sql, (order_code,))
+    return row if row else None
+
+
+def _is_renewal_candidate(trang_thai: str | None, check_flag: object, het_han: object) -> bool:
+    status_norm = _strip_accents(str(trang_thai or "")).lower()
+    if status_norm not in ("can gia han", "het han"):
+        return False
+    if check_flag not in (None, "", False, 0, "0"):
+        return False
+    return _days_left(het_han) <= 4
+
+
+def _is_payment_candidate(trang_thai: str | None, check_flag: object) -> bool:
+    status_norm = _strip_accents(str(trang_thai or "")).lower()
+    if status_norm != "chua thanh toan":
+        return False
+    return check_flag in (None, "", False, 0, "0")
+
+
+def _mark_order_paid(order_db_id: int) -> None:
+    sql = f"""
+        UPDATE {ORDER_LIST_TABLE}
+        SET {OrderListColumns.TINH_TRANG} = %s,
+            {OrderListColumns.CHECK_FLAG} = TRUE
+        WHERE {OrderListColumns.ID} = %s
+    """
+    db.execute(sql, (False, order_db_id))
 
 
 def _fetch_order_by_code(order_code: str) -> Optional[Mapping[str, object]]:
@@ -349,47 +408,51 @@ def process_payment_payload(payment_data: Mapping[str, object]) -> None:
         except Exception as exc:
             logger.error("Failed to log payment receipt: %s", exc, exc_info=True)
 
-        try:
-            source_totals: dict[int, int] = {}
-            for ma_don in ma_don_list:
-                source_id, amount_value = _resolve_import_from_order(ma_don)
-                if source_id and amount_value and amount_value > 0:
-                    source_totals[source_id] = source_totals.get(source_id, 0) + int(amount_value)
-                else:
-                    logger.info(
-                        "No payment_supply update for order %s (source_id=%s, amount=%s).",
-                        ma_don,
-                        source_id,
-                        amount_value,
-                    )
-
-            for sid, total_amount in source_totals.items():
-                _sync_payment_supply(sid, total_amount)
-        except Exception as exc:
-            logger.error("Failed to sync payment_supply from webhook: %s", exc, exc_info=True)
-
         if not ma_don_list:
             logger.info("No order code detected, nothing else to do.")
             return
 
+        source_totals: dict[int, int] = {}
+
         for ma_don in ma_don_list:
-            success, details, process_type = run_renewal(ma_don)
-            if success and process_type == "renewal":
-                logger.info("Renewal succeeded for %s. Sending Telegram notice.", ma_don)
-                if details:
-                    _send_success_notification(details)
+            order_state = _fetch_order_state(ma_don)
+            if not order_state:
+                logger.info("Order %s not found; skipping.", ma_don)
+                continue
+
+            trang_thai, check_flag, het_han, order_db_id = order_state
+
+            # Renewal candidate
+            if _is_renewal_candidate(trang_thai, check_flag, het_han):
+                success, details, process_type = run_renewal(ma_don)
+                if success and process_type == "renewal":
+                    logger.info("Renewal succeeded for %s.", ma_don)
+                    if details:
+                        _send_success_notification(details)
                 else:
-                    _send_status_notification(ma_don, "success", "Khong co chi tiet don hang.")
-            else:
-                detail_text = details if isinstance(details, str) else str(details or "")
-                status_text = process_type or "skipped"
-                logger.info(
-                    "Renewal skipped for %s (status=%s, details=%s).",
-                    ma_don,
-                    status_text,
-                    detail_text,
-                )
-                _send_status_notification(ma_don, status_text, detail_text or None)
+                    detail_text = details if isinstance(details, str) else str(details or "")
+                    status_text = process_type or "error"
+                    _send_status_notification(ma_don, status_text, detail_text or None)
+                continue
+
+            # Payment candidate
+            if _is_payment_candidate(trang_thai, check_flag):
+                source_id, amount_value = _resolve_import_from_order(ma_don)
+                if source_id and amount_value and amount_value > 0:
+                    source_totals[source_id] = source_totals.get(source_id, 0) + int(amount_value)
+                try:
+                    _mark_order_paid(order_db_id)
+                    logger.info("Marked order %s paid (status=False, check_flag=True).", ma_don)
+                except Exception as exc:
+                    logger.error("Failed to mark order %s paid: %s", ma_don, exc, exc_info=True)
+                continue
+
+            logger.info("Order %s is not renewal or payment candidate; skipping.", ma_don)
+
+        # Update payment_supply per source after processing all orders
+        for sid, total_amount in source_totals.items():
+            _sync_payment_supply(sid, total_amount)
+
     except Exception as exc:  # pragma: no cover - defensive logging
         logger.error("Critical error while processing payment webhook: %s", exc, exc_info=True)
 
