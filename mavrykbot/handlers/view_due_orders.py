@@ -238,7 +238,7 @@ def _build_caption_pretty(order: DueOrder, index: int, total: int) -> tuple[str,
     lines.append(f"🆔 Mã đơn: {_clean(order.order_code)}")
     lines.append(f"⏳ Còn lại: {order.days_left} ngày")
 
-    lines.append("──────────── 🧾 THÔNG TIN SẢN PHẨM ────────────")
+    lines.append("────── THÔNG TIN SẢN PHẨM ──────")
     if order.description:
         lines.append(f"📝 Mô tả: {_clean(order.description)}")
     if order.slot:
@@ -251,12 +251,12 @@ def _build_caption_pretty(order: DueOrder, index: int, total: int) -> tuple[str,
         lines.append(f"📆 Ngày hết hạn: {_clean(order.expiry_date.strftime('%d/%m/%Y'))}")
     lines.append(f"💰 Giá bán: {_format_currency(order.sale_price)}")
 
-    lines.append("─────────────── 🤝 THÔNG TIN KHÁCH HÀNG ───────────────")
+    lines.append("────── THÔNG TIN KHÁCH HÀNG ──────")
     lines.append(f"👥 Tên: {_clean(order.customer_name or '---')}")
     if order.customer_link:
         lines.append(f"🔗 Liên hệ: {_clean(order.customer_link)}")
 
-    lines.append("──────── ℹ️ THÔNG TIN THANH TOÁN ────────")
+    lines.append("────── THÔNG TIN THANH TOÁN ──────")
     lines.append("")
     lines.append("🏦 Ngân hàng: VP Bank")
     lines.append("🏧 STK: 9183400998")
