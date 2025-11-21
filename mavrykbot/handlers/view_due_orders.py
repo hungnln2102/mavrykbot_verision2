@@ -165,7 +165,7 @@ def fetch_due_orders(limit: int = MAX_DUE_ORDERS) -> list[DueOrder]:
 
 def _format_currency(value: int) -> str:
     if value <= 0:
-        return "Chua xac dinh"
+        return "Chưa Xác Định"
     return f"{value:,} VND"
 
 def _clean(text: str | None) -> str:
@@ -175,28 +175,28 @@ def _clean(text: str | None) -> str:
 
 def _build_caption(order: DueOrder, index: int, total: int) -> tuple[str, Optional[BytesIO]]:
     header = (
-        f"Don can gia han ({index + 1}/{total})\n"
-        f"Ma don: { _clean(order.order_code)}\n"
-        f"San pham: {_clean(order.product_name)}\n"
-        f"Con lai: {order.days_left} ngay"
+        f"Đơn Cần Gia Hạn ({index + 1}/{total})\n"
+        f"Mã Đơn: { _clean(order.order_code)}\n"
+        f"Sản Phẩm: {_clean(order.product_name)}\n"
+        f"Còn Lại: {order.days_left} ngay"
     )
     info_lines = []
     if order.description:
-        info_lines.append(f"- Mo ta: {_clean(order.description)}")
+        info_lines.append(f"- Mô tả: {_clean(order.description)}")
     if order.slot:
         info_lines.append(f"- Slot: {_clean(order.slot)}")
     if order.start_date:
-        info_lines.append(f"- Ngay dang ky: {_clean(order.start_date.strftime('%d/%m/%Y'))}")
+        info_lines.append(f"- Ngày Đăng ký: {_clean(order.start_date.strftime('%d/%m/%Y'))}")
     if order.duration_days:
-        info_lines.append(f"- Thoi han: {order.duration_days} ngay")
+        info_lines.append(f"- Thời Hạn: {order.duration_days} ngay")
     if order.expiry_date:
-        info_lines.append(f"- Ngay het han: {_clean(order.expiry_date.strftime('%d/%m/%Y'))}")
+        info_lines.append(f"- Ngày Hết Hạn: {_clean(order.expiry_date.strftime('%d/%m/%Y'))}")
 
     customer_lines = [
-        f"- Ten khach: {_clean(order.customer_name or '---')}",
+        f"- Tên Khách: {_clean(order.customer_name or '---')}",
     ]
     if order.customer_link:
-        customer_lines.append(f"- Lien he: {_clean(order.customer_link)}")
+        customer_lines.append(f"- Liên Hệ: {_clean(order.customer_link)}")
 
     price_text = _format_currency(order.sale_price)
 
@@ -205,14 +205,63 @@ def _build_caption(order: DueOrder, index: int, total: int) -> tuple[str, Option
 
     caption = (
         f"{header}\n\n"
-        f"THONG TIN SAN PHAM\n"
+        f"THÔNG TIN SẢN PHẨM\n"
         f"{body}\n"
-        f"- Gia ban: {price_text}\n\n"
-        f"THONG TIN KHACH HANG\n"
+        f"- Giá Bán: {price_text}\n\n"
+        f"THÔNG TIN KHÁCH HÀNG\n"
         f"{customer_block}\n\n"
-        f"Vui long thanh toan theo thong tin thuong dung.\n"
-        f"Xin cam on!"
+        f"vui lòng chuyển khoản đúng số tiền và mã đơn hàng.\n"
+        f"Xin cám ơn!"
     )
+
+    qr_image = None
+    if order.sale_price > 0:
+        try:
+            qr_url = QR_TEMPLATE.format(amount=order.sale_price, order_id=order.order_code)
+            response = requests.get(qr_url, timeout=10)
+            response.raise_for_status()
+            qr_image = BytesIO(response.content)
+        except requests.RequestException as exc:
+            logger.warning("Failed generating QR for %s: %s", order.order_code, exc)
+
+    return caption, qr_image
+
+
+def _build_caption_pretty(order: DueOrder, index: int, total: int) -> tuple[str, Optional[BytesIO]]:
+    """
+    Build a cleaner, plain-text caption for due-order notifications.
+    ASCII separators only (parse_mode=None) to avoid Markdown issues.
+    """
+    lines: list[str] = []
+    lines.append("=" * 52)
+    lines.append("THONG BAO GIA HAN")
+    lines.append("-" * 52)
+    lines.append(f"Don: ({index + 1}/{total})")
+    lines.append(f"Ma don: {_clean(order.order_code)}")
+    lines.append(f"San pham: {_clean(order.product_name)}")
+    lines.append(f"Con lai: {order.days_left} ngay")
+    lines.append("-" * 52)
+    lines.append("THONG TIN DON HANG")
+    if order.description:
+        lines.append(f"- Mo ta: {_clean(order.description)}")
+    if order.slot:
+        lines.append(f"- Slot: {_clean(order.slot)}")
+    if order.start_date:
+        lines.append(f"- Ngay dang ky: {_clean(order.start_date.strftime('%d/%m/%Y'))}")
+    if order.duration_days:
+        lines.append(f"- Thoi han: {order.duration_days} ngay")
+    if order.expiry_date:
+        lines.append(f"- Ngay het han: {_clean(order.expiry_date.strftime('%d/%m/%Y'))}")
+    lines.append(f"- Gia ban: {_format_currency(order.sale_price)}")
+    lines.append("-" * 52)
+    lines.append("THONG TIN KHACH HANG")
+    lines.append(f"- Ten khach: {_clean(order.customer_name or '---')}")
+    if order.customer_link:
+        lines.append(f"- Lien he: {_clean(order.customer_link)}")
+    lines.append("")
+    lines.append("Vui long thanh toan theo thong tin thuong dung.")
+    lines.append("Xin cam on!")
+    caption = "\n".join(lines)
 
     qr_image = None
     if order.sale_price > 0:
@@ -259,7 +308,7 @@ async def check_due_orders_job(context: ContextTypes.DEFAULT_TYPE) -> None:
             await context.bot.send_message(
                 chat_id=group_id,
                 message_thread_id=topic_id,
-                text=escape_mdv2("Khong co don nao can gia han sau 4 ngay."),
+                text=escape_mdv2("Không có đơn nào cần gia hạn."),
                 parse_mode=ParseMode.MARKDOWN_V2,
             )
         except Exception as exc:
@@ -271,7 +320,7 @@ async def check_due_orders_job(context: ContextTypes.DEFAULT_TYPE) -> None:
             chat_id=group_id,
             message_thread_id=topic_id,
             text=escape_mdv2(
-                f"Thong bao: tim thay {len(orders)} don can gia han (con {TARGET_DAYS_LEFT} ngay)."
+                f"Thông Báo: Tìm Thấy {len(orders)} đơn cần gia hạn."
             ),
             parse_mode=ParseMode.MARKDOWN_V2,
         )
@@ -279,7 +328,7 @@ async def check_due_orders_job(context: ContextTypes.DEFAULT_TYPE) -> None:
         logger.warning("Failed sending header message: %s", exc)
 
     for index, order in enumerate(orders):
-        caption, qr_image = _build_caption(order, index, len(orders))
+        caption, qr_image = _build_caption_pretty(order, index, len(orders))
         try:
             if qr_image:
                 qr_image.seek(0)
