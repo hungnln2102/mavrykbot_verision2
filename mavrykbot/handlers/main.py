@@ -19,7 +19,9 @@ ensure_project_root()
 
 import logging
 import os
+from datetime import time
 from typing import Awaitable, Callable, Optional
+from zoneinfo import ZoneInfo
 
 from telegram import Update
 from telegram.ext import (
@@ -36,7 +38,7 @@ from mavrykbot.handlers.View_order_unpaid import get_unpaid_order_conversation_h
 from mavrykbot.handlers.add_order import get_add_order_conversation_handler
 from mavrykbot.handlers.menu import show_main_selector, show_outer_menu
 from mavrykbot.handlers.update_order import get_update_order_conversation_handler
-from mavrykbot.handlers.view_due_orders import test_due_orders_command
+from mavrykbot.handlers.view_due_orders import check_due_orders_job, test_due_orders_command
 from mavrykbot.notifications.error_notifier import notify_error
 
 try:
@@ -169,4 +171,11 @@ def build_application() -> Application:
     application.add_handler(CallbackQueryHandler(button_callback))
     application.add_handler(CommandHandler("testjob", test_due_orders_command))
     application.add_error_handler(application_error_handler)
+
+    # Daily notification for due orders at 07:00 Asia/Ho_Chi_Minh
+    application.job_queue.run_daily(
+        check_due_orders_job,
+        time=time(hour=7, minute=0, tzinfo=ZoneInfo("Asia/Ho_Chi_Minh")),
+        name="daily_due_orders",
+    )
     return application
