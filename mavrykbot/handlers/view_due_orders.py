@@ -168,31 +168,35 @@ def _format_currency(value: int) -> str:
         return "Chua xac dinh"
     return f"{value:,} VND"
 
+def _clean(text: str | None) -> str:
+    """Return plain text for captions (avoid Markdown parsing issues)."""
+    return str(text or "").strip()
+
 
 def _build_caption(order: DueOrder, index: int, total: int) -> tuple[str, Optional[BytesIO]]:
     header = (
-        f"*Don can gia han* `({index + 1}/{total})`\n"
-        f"*Ma don:* `{escape_mdv2(order.order_code)}`\n"
-        f"*San pham:* {escape_mdv2(order.product_name)}\n"
+        f"Don can gia han ({index + 1}/{total})\n"
+        f"Ma don: { _clean(order.order_code)}\n"
+        f"San pham: {_clean(order.product_name)}\n"
         f"Con lai: {order.days_left} ngay"
     )
     info_lines = []
     if order.description:
-        info_lines.append(f"\\- Mo ta: {escape_mdv2(order.description)}")
+        info_lines.append(f"- Mo ta: {_clean(order.description)}")
     if order.slot:
-        info_lines.append(f"\\- Slot: {escape_mdv2(order.slot)}")
+        info_lines.append(f"- Slot: {_clean(order.slot)}")
     if order.start_date:
-        info_lines.append(f"\\- Ngay dang ky: {escape_mdv2(order.start_date.strftime('%d/%m/%Y'))}")
+        info_lines.append(f"- Ngay dang ky: {_clean(order.start_date.strftime('%d/%m/%Y'))}")
     if order.duration_days:
-        info_lines.append(f"\\- Thoi han: {escape_mdv2(str(order.duration_days))} ngay")
+        info_lines.append(f"- Thoi han: {order.duration_days} ngay")
     if order.expiry_date:
-        info_lines.append(f"\\- Ngay het han: {escape_mdv2(order.expiry_date.strftime('%d/%m/%Y'))}")
+        info_lines.append(f"- Ngay het han: {_clean(order.expiry_date.strftime('%d/%m/%Y'))}")
 
     customer_lines = [
-        f"\\- Ten khach: {escape_mdv2(order.customer_name or '---')}",
+        f"- Ten khach: {_clean(order.customer_name or '---')}",
     ]
     if order.customer_link:
-        customer_lines.append(f"\\- Lien he: {escape_mdv2(order.customer_link)}")
+        customer_lines.append(f"- Lien he: {_clean(order.customer_link)}")
 
     price_text = _format_currency(order.sale_price)
 
@@ -201,10 +205,10 @@ def _build_caption(order: DueOrder, index: int, total: int) -> tuple[str, Option
 
     caption = (
         f"{header}\n\n"
-        f"*THONG TIN SAN PHAM*\n"
+        f"THONG TIN SAN PHAM\n"
         f"{body}\n"
-        f"\\- Gia ban: {escape_mdv2(price_text)}\n\n"
-        f"*THONG TIN KHACH HANG*\n"
+        f"- Gia ban: {price_text}\n\n"
+        f"THONG TIN KHACH HANG\n"
         f"{customer_block}\n\n"
         f"Vui long thanh toan theo thong tin thuong dung.\n"
         f"Xin cam on!"
@@ -284,14 +288,14 @@ async def check_due_orders_job(context: ContextTypes.DEFAULT_TYPE) -> None:
                     message_thread_id=topic_id,
                     photo=qr_image,
                     caption=caption,
-                    parse_mode=ParseMode.MARKDOWN_V2,
+                    parse_mode=None,
                 )
             else:
                 await context.bot.send_message(
                     chat_id=group_id,
                     message_thread_id=topic_id,
                     text=caption,
-                    parse_mode=ParseMode.MARKDOWN_V2,
+                    parse_mode=None,
                 )
         except BadRequest as exc:
             logger.error("Failed sending order %s: %s", order.order_code, exc)
