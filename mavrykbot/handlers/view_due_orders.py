@@ -178,21 +178,21 @@ def _build_caption(order: DueOrder, index: int, total: int) -> tuple[str, Option
     )
     info_lines = []
     if order.description:
-        info_lines.append(f"- Mo ta: {escape_mdv2(order.description)}")
+        info_lines.append(f"\\- Mo ta: {escape_mdv2(order.description)}")
     if order.slot:
-        info_lines.append(f"- Slot: {escape_mdv2(order.slot)}")
+        info_lines.append(f"\\- Slot: {escape_mdv2(order.slot)}")
     if order.start_date:
-        info_lines.append(f"- Ngay dang ky: {escape_mdv2(order.start_date.strftime('%d/%m/%Y'))}")
+        info_lines.append(f"\\- Ngay dang ky: {escape_mdv2(order.start_date.strftime('%d/%m/%Y'))}")
     if order.duration_days:
-        info_lines.append(f"- Thoi han: {escape_mdv2(str(order.duration_days))} ngay")
+        info_lines.append(f"\\- Thoi han: {escape_mdv2(str(order.duration_days))} ngay")
     if order.expiry_date:
-        info_lines.append(f"- Ngay het han: {escape_mdv2(order.expiry_date.strftime('%d/%m/%Y'))}")
+        info_lines.append(f"\\- Ngay het han: {escape_mdv2(order.expiry_date.strftime('%d/%m/%Y'))}")
 
     customer_lines = [
-        f"- Ten khach: {escape_mdv2(order.customer_name or '---')}",
+        f"\\- Ten khach: {escape_mdv2(order.customer_name or '---')}",
     ]
     if order.customer_link:
-        customer_lines.append(f"- Lien he: {escape_mdv2(order.customer_link)}")
+        customer_lines.append(f"\\- Lien he: {escape_mdv2(order.customer_link)}")
 
     price_text = _format_currency(order.sale_price)
 
@@ -203,7 +203,7 @@ def _build_caption(order: DueOrder, index: int, total: int) -> tuple[str, Option
         f"{header}\n\n"
         f"*THONG TIN SAN PHAM*\n"
         f"{body}\n"
-        f"- Gia ban: {escape_mdv2(price_text)}\n\n"
+        f"\\- Gia ban: {escape_mdv2(price_text)}\n\n"
         f"*THONG TIN KHACH HANG*\n"
         f"{customer_block}\n\n"
         f"Vui long thanh toan theo thong tin thuong dung.\n"
