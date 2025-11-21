@@ -173,9 +173,14 @@ def build_application() -> Application:
     application.add_error_handler(application_error_handler)
 
     # Daily notification for due orders at 07:00 Asia/Ho_Chi_Minh
-    application.job_queue.run_daily(
-        check_due_orders_job,
-        time=time(hour=7, minute=0, tzinfo=ZoneInfo("Asia/Ho_Chi_Minh")),
-        name="daily_due_orders",
-    )
+    if application.job_queue:
+        application.job_queue.run_daily(
+            check_due_orders_job,
+            time=time(hour=7, minute=0, tzinfo=ZoneInfo("Asia/Ho_Chi_Minh")),
+            name="daily_due_orders",
+        )
+    else:  # pragma: no cover - defensive guard when job-queue extra not installed
+        logger.warning(
+            "JobQueue is not available. Install python-telegram-bot[job-queue] to enable the 7:00 due-order job."
+        )
     return application

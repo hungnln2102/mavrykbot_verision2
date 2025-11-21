@@ -337,23 +337,19 @@ async def _safe_reply(update: Update, text: str, *, markdown: bool = False) -> N
 
 
 async def test_due_orders_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Xử lý lệnh /testjob để chạy test_view_due_orders và báo cáo kết quả."""
+    """/testjob: kích hoạt thủ công job thông báo 7:00 sáng (giả lập chạy ngay)."""
     if update.message is None:
         return
 
-    try:
-        limit = int(context.args[0]) if context.args else 5
-    except (ValueError, IndexError):
-        limit = 5
-
     await _safe_reply(
         update,
-        f"Đang chạy test_view_due_orders với limit={limit}. Kiểm tra console/log...",
+        "Đang kích hoạt giả lập job 7:00 sáng. Vui lòng kiểm tra group/thảo luận thông báo.",
+        markdown=True,
     )
 
     try:
-        test_view_due_orders(limit=limit)
-        await _safe_reply(update, "Test job đã chạy xong. Kết quả được ghi vào log/console.", markdown=True)
+        await check_due_orders_job(context)
+        await _safe_reply(update, "Job 7:00 đã chạy xong (giả lập). Kiểm tra group đã cấu hình.", markdown=True)
     except Exception as exc:
-        logger.error("Lỗi khi chạy test job: %s", exc, exc_info=True)
-        await _safe_reply(update, f"Lỗi khi chạy test job: {exc}", markdown=True)
+        logger.error("Lỗi khi chạy test job (giả lập 7h): %s", exc, exc_info=True)
+        await _safe_reply(update, f"Lỗi khi chạy job: {exc}", markdown=True)
