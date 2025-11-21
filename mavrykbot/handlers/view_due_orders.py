@@ -233,34 +233,39 @@ def _build_caption_pretty(order: DueOrder, index: int, total: int) -> tuple[str,
     ASCII separators only (parse_mode=None) to avoid Markdown issues.
     """
     lines: list[str] = []
-    lines.append("=" * 52)
-    lines.append("THONG BAO GIA HAN")
-    lines.append("-" * 52)
-    lines.append(f"Don: ({index + 1}/{total})")
-    lines.append(f"Ma don: {_clean(order.order_code)}")
-    lines.append(f"San pham: {_clean(order.product_name)}")
-    lines.append(f"Con lai: {order.days_left} ngay")
-    lines.append("-" * 52)
-    lines.append("THONG TIN DON HANG")
+    lines.append(f"📦 Đơn hàng đến hạn ({index + 1}/{total})")
+    lines.append(f"🧰 Sản phẩm: {_clean(order.product_name)}")
+    lines.append(f"🆔 Mã đơn: {_clean(order.order_code)}")
+    lines.append(f"⏳ Còn lại: {order.days_left} ngày")
+
+    lines.append("──────────── 🧾 THÔNG TIN SẢN PHẨM ────────────")
     if order.description:
-        lines.append(f"- Mo ta: {_clean(order.description)}")
+        lines.append(f"📝 Mô tả: {_clean(order.description)}")
     if order.slot:
-        lines.append(f"- Slot: {_clean(order.slot)}")
+        lines.append(f"📌 Slot: {_clean(order.slot)}")
     if order.start_date:
-        lines.append(f"- Ngay dang ky: {_clean(order.start_date.strftime('%d/%m/%Y'))}")
+        lines.append(f"📅 Ngày đăng ký: {_clean(order.start_date.strftime('%d/%m/%Y'))}")
     if order.duration_days:
-        lines.append(f"- Thoi han: {order.duration_days} ngay")
+        lines.append(f"⏱️ Thời hạn: {order.duration_days} ngày")
     if order.expiry_date:
-        lines.append(f"- Ngay het han: {_clean(order.expiry_date.strftime('%d/%m/%Y'))}")
-    lines.append(f"- Gia ban: {_format_currency(order.sale_price)}")
-    lines.append("-" * 52)
-    lines.append("THONG TIN KHACH HANG")
-    lines.append(f"- Ten khach: {_clean(order.customer_name or '---')}")
+        lines.append(f"📆 Ngày hết hạn: {_clean(order.expiry_date.strftime('%d/%m/%Y'))}")
+    lines.append(f"💰 Giá bán: {_format_currency(order.sale_price)}")
+
+    lines.append("─────────────── 🤝 THÔNG TIN KHÁCH HÀNG ───────────────")
+    lines.append(f"👥 Tên: {_clean(order.customer_name or '---')}")
     if order.customer_link:
-        lines.append(f"- Lien he: {_clean(order.customer_link)}")
+        lines.append(f"🔗 Liên hệ: {_clean(order.customer_link)}")
+
+    lines.append("──────── ℹ️ THÔNG TIN THANH TOÁN ────────")
     lines.append("")
-    lines.append("Vui long thanh toan theo thong tin thuong dung.")
-    lines.append("Xin cam on!")
+    lines.append("🏦 Ngân hàng: VP Bank")
+    lines.append("🏧 STK: 9183400998")
+    lines.append("👤 Tên: NGO LE NGOC HUNG")
+    lines.append(f"🧾 Nội dung: Thanh toán {_clean(order.order_code)}")
+
+    lines.append("")
+    lines.append("⚠️ Vui lòng ghi đúng mã đơn trong nội dung chuyển khoản để xử lý nhanh.")
+    lines.append("🙏 Trân trọng cảm ơn quý khách!")
     caption = "\n".join(lines)
 
     qr_image = None
