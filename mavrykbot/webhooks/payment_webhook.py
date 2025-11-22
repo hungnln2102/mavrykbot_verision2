@@ -163,7 +163,7 @@ def _is_payment_candidate(trang_thai: str | None, check_flag: object) -> bool:
     status_norm = _strip_accents(str(trang_thai or "")).lower()
     if status_norm != "chua thanh toan":
         return False
-    return check_flag in (None, "", False, 0, "0")
+    return check_flag in (None, "", "null")
 
 
 def _mark_order_paid(order_db_id: int) -> None:
@@ -174,6 +174,7 @@ def _mark_order_paid(order_db_id: int) -> None:
         UPDATE {ORDER_LIST_TABLE}
         SET {OrderListColumns.CHECK_FLAG} = FALSE
         WHERE {OrderListColumns.ID} = %s
+          AND {OrderListColumns.CHECK_FLAG} IS NULL
     """
     db.execute(sql, (order_db_id,))
 
