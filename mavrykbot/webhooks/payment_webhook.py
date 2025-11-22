@@ -167,13 +167,15 @@ def _is_payment_candidate(trang_thai: str | None, check_flag: object) -> bool:
 
 
 def _mark_order_paid(order_db_id: int) -> None:
+    """
+    For new payments we only flip check_flag from NULL to FALSE and keep tinh_trang unchanged.
+    """
     sql = f"""
         UPDATE {ORDER_LIST_TABLE}
-        SET {OrderListColumns.TINH_TRANG} = %s,
-            {OrderListColumns.CHECK_FLAG} = TRUE
+        SET {OrderListColumns.CHECK_FLAG} = FALSE
         WHERE {OrderListColumns.ID} = %s
     """
-    db.execute(sql, (False, order_db_id))
+    db.execute(sql, (order_db_id,))
 
 
 def _fetch_order_by_code(order_code: str) -> Optional[Mapping[str, object]]:

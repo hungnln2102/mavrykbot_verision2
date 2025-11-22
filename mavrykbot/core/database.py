@@ -1,20 +1,30 @@
 from __future__ import annotations
 
+import logging
 import os
+import threading
 from datetime import datetime
 from typing import Any, Dict, Iterable, Optional, Sequence, Tuple
 
 import psycopg2
 import psycopg2.pool
+from psycopg2 import InterfaceError, OperationalError
 
 from mavrykbot.core.db_schema import PAYMENT_RECEIPT_TABLE, PaymentReceiptColumns
+
+
+logger = logging.getLogger(__name__)
 
 
 class Database:
     """Lightweight PostgreSQL helper built on psycopg2's SimpleConnectionPool."""
 
     def __init__(self) -> None:
-        self._pool = psycopg2.pool.SimpleConnectionPool(
+        self._lock = threading.Lock()
+        self._pool = self._create_pool()
+
+    def _create_pool(self) -> psycopg2.pool.SimpleConnectionPool:
+        return psycopg2.pool.SimpleConnectionPool(
             minconn=1,
             maxconn=5,
             host=os.getenv("DB_HOST"),
@@ -22,38 +32,85 @@ class Database:
             dbname=os.getenv("DB_NAME"),
             user=os.getenv("DB_USER"),
             password=os.getenv("DB_PASSWORD"),
+            keepalives=1,
+            keepalives_idle=30,
+            keepalives_interval=10,
+            keepalives_count=5,
         )
 
-    def execute(self, query: str, params: Optional[Sequence[Any]] = None) -> None:
+    def _reset_pool(self) -> None:
+        # When PostgreSQL restarts, the pool keeps stale connections; rebuild it once.
+        with self._lock:
+            try:
+                if self._pool:
+                    self._pool.closeall()
+            except Exception as exc:  # pragma: no cover - defensive
+                logger.warning("Failed closing old DB pool: %s", exc)
+            self._pool = self._create_pool()
+            logger.info("Recreated PostgreSQL connection pool after failure.")
+
+    def _borrow_connection(self):
         conn = self._pool.getconn()
+        if conn and conn.closed:
+            # Drop closed/stale connection and borrow a fresh one.
+            try:
+                self._pool.putconn(conn, close=True)
+            except Exception:
+                pass
+            conn = self._pool.getconn()
+        return conn
+
+    def _safe_putconn(self, conn, close: bool = False) -> None:
         try:
+            self._pool.putconn(conn, close=close)
+        except Exception:
+            pass
+
+    def _with_reconnect(self, query_fn):
+        """
+        Run a query with one automatic reconnect attempt when the server drops connections.
+        """
+        conn = None
+        try:
+            conn = self._borrow_connection()
+            return query_fn(conn)
+        except (OperationalError, InterfaceError):
+            if conn:
+                self._safe_putconn(conn, close=True)
+            self._reset_pool()
+            conn = self._borrow_connection()
+            return query_fn(conn)
+        finally:
+            if conn:
+                self._safe_putconn(conn)
+
+    def execute(self, query: str, params: Optional[Sequence[Any]] = None) -> None:
+        def _run(conn):
             with conn.cursor() as cur:
                 cur.execute(query, params)
                 conn.commit()
-        finally:
-            self._pool.putconn(conn)
+
+        self._with_reconnect(_run)
 
     def fetch_one(
         self, query: str, params: Optional[Sequence[Any]] = None
     ) -> Optional[Tuple[Any, ...]]:
-        conn = self._pool.getconn()
-        try:
+        def _run(conn):
             with conn.cursor() as cur:
                 cur.execute(query, params)
                 return cur.fetchone()
-        finally:
-            self._pool.putconn(conn)
+
+        return self._with_reconnect(_run)
 
     def fetch_all(
         self, query: str, params: Optional[Sequence[Any]] = None
     ) -> Iterable[Tuple[Any, ...]]:
-        conn = self._pool.getconn()
-        try:
+        def _run(conn):
             with conn.cursor() as cur:
                 cur.execute(query, params)
                 return cur.fetchall()
-        finally:
-            self._pool.putconn(conn)
+
+        return self._with_reconnect(_run)
 
 
 db = Database()
