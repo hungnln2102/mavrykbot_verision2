@@ -753,7 +753,7 @@ async def hoan_tat_don(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
                 info.get("gia_nhap_value", 0),
                 gia_ban_value,
                 info.get("note", ""),
-                "Chua Thanh Toan",
+                "Chưa Thanh Toán",
                 None,
             )
 
