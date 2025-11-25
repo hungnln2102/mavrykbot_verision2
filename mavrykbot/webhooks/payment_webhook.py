@@ -168,7 +168,7 @@ def _is_payment_candidate(trang_thai: str | None, check_flag: object) -> bool:
 
 def _mark_order_paid(order_db_id: int) -> None:
     """
-    For new payments we only flip check_flag from NULL to FALSE and keep tinh_trang unchanged.
+    For new payments we only flip check_flag from NULL to FALSE and keep status unchanged.
     """
     sql = f"""
         UPDATE {ORDER_LIST_TABLE}

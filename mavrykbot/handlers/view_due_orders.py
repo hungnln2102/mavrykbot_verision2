@@ -82,7 +82,7 @@ def _coerce_date(value) -> Optional[date]:
 def fetch_due_orders(limit: int = MAX_DUE_ORDERS) -> list[DueOrder]:
     """
     Query PostgreSQL to find orders that need extension.
-    Requirement: order_list.tinh_trang indicates "Cần Gia Hạn"
+    Requirement: order_list.status indicates "Cần Gia Hạn"
     and remaining days equal TARGET_DAYS_LEFT.
     """
 
