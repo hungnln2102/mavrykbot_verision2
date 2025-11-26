@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import date, datetime
+from decimal import Decimal
 from io import BytesIO
 from typing import Optional
 
@@ -79,19 +80,56 @@ def _coerce_date(value) -> Optional[date]:
     return None
 
 
+def _round_thousand(value: int | Decimal) -> int:
+    """Round positive numbers up to the nearest thousand; otherwise return 0."""
+    try:
+        number = int(Decimal(value))
+    except Exception:
+        return 0
+    if number <= 0:
+        return 0
+    return ((number + 999) // 1000) * 1000
+
+
+def _calc_sale_price(
+    order_code: str,
+    base_price: int | Decimal | None,
+    pct_ctv: Decimal | None,
+    pct_khach: Decimal | None,
+    fallback_sale: int | Decimal | None,
+) -> int:
+    """Compute sale price from supply price + percentages based on order prefix."""
+    try:
+        price_value = Decimal(str(base_price)) if base_price is not None else Decimal(0)
+    except Exception:
+        price_value = Decimal(0)
+
+    pct_ctv_val = Decimal(str(pct_ctv)) if pct_ctv is not None else Decimal("1.0")
+    pct_khach_val = Decimal(str(pct_khach)) if pct_khach is not None else Decimal("1.0")
+
+    ma = (order_code or "").upper()
+    gia_ban = price_value
+    try:
+        if ma.startswith("MAVC"):
+            gia_ban = price_value * pct_ctv_val
+        elif ma.startswith("MAVL"):
+            gia_ban = price_value * pct_ctv_val * pct_khach_val
+        elif ma.startswith("MAVK"):
+            gia_ban = price_value
+        if gia_ban <= 0 and fallback_sale:
+            gia_ban = Decimal(str(fallback_sale))
+    except Exception:
+        if fallback_sale:
+            gia_ban = Decimal(str(fallback_sale))
+    return _round_thousand(int(gia_ban))
+
+
 def fetch_due_orders(limit: int = MAX_DUE_ORDERS) -> list[DueOrder]:
     """
     Query PostgreSQL to find orders that need extension.
     Requirement: order_list.status indicates "Cần Gia Hạn"
     and remaining days equal TARGET_DAYS_LEFT.
     """
-
-    supply_price_subquery = (
-        f"SELECT {SupplyPriceColumns.PRODUCT_ID} AS product_id,"
-        f" MIN({SupplyPriceColumns.PRICE}) AS price"
-        f" FROM {SUPPLY_PRICE_TABLE}"
-        f" GROUP BY {SupplyPriceColumns.PRODUCT_ID}"
-    )
 
     sql = f"""
         SELECT
@@ -107,14 +145,21 @@ def fetch_due_orders(limit: int = MAX_DUE_ORDERS) -> list[DueOrder]:
             ol.{OrderListColumns.HET_HAN},
             ol.{OrderListColumns.NGUON},
             ol.{OrderListColumns.NOTE},
-            COALESCE(ol.{OrderListColumns.GIA_BAN}, spp.price, 0) AS price_vnd
+            ol.{OrderListColumns.GIA_BAN},
+            ol.{OrderListColumns.GIA_NHAP},
+            pp.{ProductPriceColumns.ID} AS product_id,
+            pp.{ProductPriceColumns.PCT_CTV},
+            pp.{ProductPriceColumns.PCT_KHACH},
+            s.{SupplyColumns.ID} AS source_id,
+            sp.{SupplyPriceColumns.PRICE} AS supply_price
         FROM {ORDER_LIST_TABLE} AS ol
         LEFT JOIN {SUPPLY_TABLE} AS s
             ON LOWER(s.{SupplyColumns.SOURCE_NAME}) = LOWER(ol.{OrderListColumns.NGUON})
         LEFT JOIN {PRODUCT_PRICE_TABLE} AS pp
             ON LOWER(pp.{ProductPriceColumns.SAN_PHAM}) = LOWER(ol.{OrderListColumns.SAN_PHAM})
-        LEFT JOIN ({supply_price_subquery}) AS spp
-            ON spp.product_id = pp.{ProductPriceColumns.ID}
+        LEFT JOIN {SUPPLY_PRICE_TABLE} AS sp
+            ON sp.{SupplyPriceColumns.PRODUCT_ID} = pp.{ProductPriceColumns.ID}
+            AND sp.{SupplyPriceColumns.SOURCE_ID} = s.{SupplyColumns.ID}
         WHERE LOWER(ol.{OrderListColumns.TINH_TRANG}) = LOWER(%s)
         ORDER BY ol.{OrderListColumns.HET_HAN} ASC
         LIMIT %s
@@ -136,12 +181,24 @@ def fetch_due_orders(limit: int = MAX_DUE_ORDERS) -> list[DueOrder]:
             expiry_date,
             source,
             note,
-            price_vnd,
+            ol_price,
+            ol_cost,
+            product_id,
+            pct_ctv,
+            pct_khach,
+            source_id,
+            supply_price,
         ) = row
         expiry = _coerce_date(expiry_date)
         days_left = (expiry - today).days if expiry else 0
         if days_left != TARGET_DAYS_LEFT:
             continue
+
+        base_price = supply_price if supply_price is not None else ol_cost
+        sale_price = _calc_sale_price(order_code, base_price, pct_ctv, pct_khach, ol_price)
+        if sale_price <= 0 and ol_price:
+            sale_price = _round_thousand(int(ol_price))
+
         due_orders.append(
             DueOrder(
                 db_id=int(db_id),
@@ -156,7 +213,7 @@ def fetch_due_orders(limit: int = MAX_DUE_ORDERS) -> list[DueOrder]:
                 expiry_date=_coerce_date(expiry_date),
                 source=str(source or "").strip(),
                 note=str(note or "").strip(),
-                sale_price=int(price_vnd or 0),
+                sale_price=int(sale_price),
                 days_left=int(days_left),
             )
         )

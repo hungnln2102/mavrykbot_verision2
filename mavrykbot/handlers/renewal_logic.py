@@ -120,35 +120,32 @@ def _get_source_price(product_id, source_id):
     return int(price) if price is not None else None
 
 
-def _get_highest_price(product_id):
-    if not product_id:
-        return None
-    query = f"""
-        SELECT MAX({SupplyPriceColumns.PRICE})
-        FROM {SUPPLY_PRICE_TABLE}
-        WHERE {SupplyPriceColumns.PRODUCT_ID} = %s
+def _calc_gia_ban(order_id: str, base_price: Decimal | int | None, pct_ctv: Decimal, pct_khach: Decimal, gia_nhap: int) -> int:
     """
-    res = db.fetch_one(query, (product_id,))
-    price = res[0] if res else None
-    return Decimal(price) if price is not None else None
+    Calculate sale price from a base supply price using order prefix rules.
+    MAVC: price * pct_ctv
+    MAVL: price * pct_ctv * pct_khach
+    MAVK: price (no markup)
+    """
+    try:
+        price_value = Decimal(str(base_price)) if base_price is not None else Decimal(str(gia_nhap))
+    except Exception:  # pragma: no cover - defensive
+        price_value = Decimal(gia_nhap)
 
-
-def _calc_gia_ban(order_id: str, highest_price: Decimal | None, pct_ctv: Decimal, pct_khach: Decimal, gia_nhap: int) -> int:
-    gia_ban = Decimal(gia_nhap)
+    gia_ban = price_value
     ma = order_id.upper()
     try:
-        if highest_price and highest_price > 0:
-            if ma.startswith("MAVC"):
-                gia_ban = highest_price * pct_ctv
-            elif ma.startswith("MAVL"):
-                gia_ctv = highest_price * pct_ctv
-                gia_ban = gia_ctv * pct_khach
-        if ma.startswith("MAVK"):
-            gia_ban = Decimal(gia_nhap)
+        if ma.startswith("MAVC"):
+            gia_ban = price_value * pct_ctv
+        elif ma.startswith("MAVL"):
+            gia_ban = price_value * pct_ctv * pct_khach
+        elif ma.startswith("MAVK"):
+            gia_ban = price_value
     except Exception:  # pragma: no cover - defensive
         logger.exception("Lỗi khi tính giá bán cho %s", order_id)
-        gia_ban = Decimal(gia_nhap)
-    return int(((int(gia_ban) + 999) // 1000) * 1000)
+        gia_ban = price_value
+
+    return int(gia_ban)
 
 
 def _as_bool(value) -> bool:
@@ -252,8 +249,8 @@ def run_renewal(order_id: str):
     gia_nhap_source = _get_source_price(product_id, source_id)
     final_gia_nhap = gia_nhap_source if gia_nhap_source is not None else chuan_hoa_gia(gia_nhap_cu)[1]
 
-    highest_price = _get_highest_price(product_id)
-    final_gia_ban = _calc_gia_ban(order_id, highest_price, pct_ctv, pct_khach, final_gia_nhap)
+    base_price = gia_nhap_source if gia_nhap_source is not None else final_gia_nhap
+    final_gia_ban = _calc_gia_ban(order_id, base_price, pct_ctv, pct_khach, final_gia_nhap)
 
     final_gia_nhap = _round_to_thousands(final_gia_nhap)
     final_gia_ban = _round_to_thousands(final_gia_ban)

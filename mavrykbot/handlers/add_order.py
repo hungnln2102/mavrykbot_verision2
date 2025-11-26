@@ -467,50 +467,56 @@ async def chon_nguon_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     logger.info(f"LOG_PRICE_CALC | Initial input price (gia_nhap) for source '{nguon}': {gia_nhap}")
     
     # Mặc định giá bán bằng giá nhập, sử dụng Decimal
-    gia_ban = Decimal(gia_nhap)
+    gia_ban = Decimal(str(gia_nhap))
 
     try:
-        # 2. Lấy giá cao nhất từ nhà cung cấp cho sản phẩm này
-        highest_price_query = f"""
-            SELECT MAX({SupplyPriceColumns.PRICE}) 
-            FROM {SUPPLY_PRICE_TABLE} 
-            WHERE {SupplyPriceColumns.PRODUCT_ID} = %s
-        """
-        highest_price_result = db.fetch_one(highest_price_query, (product_id,))
-        highest_price = highest_price_result[0] if highest_price_result and highest_price_result[0] is not None else Decimal(0)
-        logger.info(f"LOG_PRICE_CALC | Highest Price for product_id {product_id}: {highest_price}")
-
-
-        if highest_price > 0:
-            # 3. Lấy các hệ số nhân giá từ bảng Product_Price
+        # 2. Lấy hệ số PCT từ bảng Product_Price cho sản phẩm đang chọn
+        pct_ctv = Decimal("1.0")
+        pct_khach = Decimal("1.0")
+        if product_id:
             percentages_query = f"""
                 SELECT {ProductPriceColumns.PCT_CTV}, {ProductPriceColumns.PCT_KHACH} 
                 FROM {PRODUCT_PRICE_TABLE} 
                 WHERE {ProductPriceColumns.ID} = %s
             """
             percentages_result = db.fetch_one(percentages_query, (product_id,))
-            
             if percentages_result:
-                pct_ctv, pct_khach = percentages_result
-                pct_ctv = Decimal(str(pct_ctv)) if pct_ctv is not None else Decimal('1.0')
-                pct_khach = Decimal(str(pct_khach)) if pct_khach is not None else Decimal('1.0')
-                logger.info(f"LOG_PRICE_CALC | Percentages found - PCT_CTV: {pct_ctv}, PCT_KHACH: {pct_khach}")
+                pct_ctv_raw, pct_khach_raw = percentages_result
+                pct_ctv = Decimal(str(pct_ctv_raw)) if pct_ctv_raw is not None else Decimal("1.0")
+                pct_khach = Decimal(str(pct_khach_raw)) if pct_khach_raw is not None else Decimal("1.0")
+        logger.info(f"LOG_PRICE_CALC | Percentages - PCT_CTV: {pct_ctv}, PCT_KHACH: {pct_khach}")
 
+        # 3. Lấy ID của nguồn hàng
+        source_id = None
+        supply_query = f"SELECT {SupplyColumns.ID} FROM {SUPPLY_TABLE} WHERE {SupplyColumns.SOURCE_NAME} = %s"
+        supply_result = db.fetch_one(supply_query, (nguon,))
+        if supply_result:
+            source_id = supply_result[0]
+        logger.info(f"LOG_PRICE_CALC | Source id for '{nguon}': {source_id}")
 
-                # 4. Tính giá bán dựa trên mã đơn hàng
-                if ma_don.startswith("MAVC"):
-                    gia_ban = highest_price * pct_ctv
-                    logger.info(f"LOG_PRICE_CALC | MAVC branch: final_price = highest_price * pct_ctv = {highest_price} * {pct_ctv} = {gia_ban}")
-                elif ma_don.startswith("MAVL"):
-                    gia_ctv = highest_price * pct_ctv
-                    gia_ban = gia_ctv * pct_khach
-                    logger.info(f"LOG_PRICE_CALC | MAVL branch: ctv_price = highest_price * pct_ctv = {highest_price} * {pct_ctv} = {gia_ctv}")
-                    logger.info(f"LOG_PRICE_CALC | MAVL branch: final_price = ctv_price * pct_khach = {gia_ctv} * {pct_khach} = {gia_ban}")
+        # 4. Lấy giá nhập từ bảng supply_price theo product_id + source_id
+        price_value = Decimal(str(gia_nhap))
+        if product_id and source_id is not None:
+            supply_price_query = f"""
+                SELECT {SupplyPriceColumns.PRICE}
+                FROM {SUPPLY_PRICE_TABLE}
+                WHERE {SupplyPriceColumns.PRODUCT_ID} = %s AND {SupplyPriceColumns.SOURCE_ID} = %s
+            """
+            supply_price_result = db.fetch_one(supply_price_query, (product_id, source_id))
+            if supply_price_result and supply_price_result[0] is not None:
+                price_value = Decimal(str(supply_price_result[0]))
+        logger.info(f"LOG_PRICE_CALC | Supply price used: {price_value}")
 
-        # Trường hợp MAVK, giá bán bằng giá nhập đã được set ở trên
-        if ma_don.startswith("MAVK"):
-            gia_ban = Decimal(gia_nhap)
-            logger.info(f"LOG_PRICE_CALC | MAVK branch: final_price = input_price = {gia_ban}")
+        # 5. Tính giá bán theo mã đơn hàng
+        if ma_don.startswith("MAVC"):
+            gia_ban = price_value * pct_ctv
+            logger.info(f"LOG_PRICE_CALC | MAVC branch: final_price = price * pct_ctv = {price_value} * {pct_ctv} = {gia_ban}")
+        elif ma_don.startswith("MAVL"):
+            gia_ban = price_value * pct_ctv * pct_khach
+            logger.info(f"LOG_PRICE_CALC | MAVL branch: final_price = price * pct_ctv * pct_khach = {price_value} * {pct_ctv} * {pct_khach} = {gia_ban}")
+        elif ma_don.startswith("MAVK"):
+            gia_ban = price_value
+            logger.info(f"LOG_PRICE_CALC | MAVK branch: final_price = price = {gia_ban}")
 
 
     except Exception as e:
