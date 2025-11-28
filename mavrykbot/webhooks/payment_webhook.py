@@ -44,20 +44,22 @@ PAYMENT_WEBHOOK_SECRET = (
 PAYMENT_WEBHOOK_PATH = f"/bot/payment_sepay/{PAYMENT_WEBHOOK_SECRET}"
 
 payment_webhook_blueprint = Blueprint("payment_webhook", __name__)
+_bot_token: str | None = None
+_bot_token_lock = threading.Lock()
 
-_bot_instance: Bot | None = None
-_bot_lock = threading.Lock()
 
-
-def _get_bot() -> Bot:
-    """Instantiate a Telegram Bot lazily so Waitress threads can reuse it."""
-    global _bot_instance
-    if _bot_instance:
-        return _bot_instance
-    with _bot_lock:
-        if _bot_instance is None:
-            _bot_instance = Bot(load_bot_config().token)
-    return _bot_instance
+def _get_bot_token() -> str:
+    """
+    Cache the bot token only (not the Bot instance) to avoid reusing Bot objects
+    across closed event loops when asyncio.run is invoked from worker threads.
+    """
+    global _bot_token
+    if _bot_token:
+        return _bot_token
+    with _bot_token_lock:
+        if not _bot_token:
+            _bot_token = load_bot_config().token
+    return _bot_token
 
 
 def extract_ma_don(text: str | None) -> list[str]:
@@ -303,25 +305,37 @@ def _insert_payment_receipt(order_codes: Iterable[str], payment_data: Mapping[st
     logger.info("Logged payment receipt for orders: %s", ma_don_str or "N/A")
 
 
+async def _send_success_notification_async(order_details: Mapping[str, object]) -> None:
+    """Send renewal success using a fresh Bot tied to the current event loop."""
+    async with Bot(_get_bot_token()) as bot:
+        await send_renewal_success_notification(bot, order_details)
+
+
 def _send_success_notification(order_details: Mapping[str, object]) -> None:
     """Send the full renewal summary when Sepay renewal succeeds."""
     try:
-        asyncio.run(send_renewal_success_notification(_get_bot(), order_details))
+        asyncio.run(_send_success_notification_async(order_details))
     except Exception as exc:  # pragma: no cover - defensive logging
         logger.error("Failed to send renewal success notification: %s", exc, exc_info=True)
+
+
+async def _send_status_notification_async(
+    order_code: str, status: str, detail_text: str | None
+) -> None:
+    """Send lightweight renewal status using a fresh Bot tied to the current event loop."""
+    async with Bot(_get_bot_token()) as bot:
+        await send_renewal_status_notification(
+            bot,
+            order_code,
+            status,
+            details=detail_text,
+        )
 
 
 def _send_status_notification(order_code: str, status: str, detail_text: str | None = None) -> None:
     """Send a lightweight status entry (success/skip/error) to the renewal topic."""
     try:
-        asyncio.run(
-            send_renewal_status_notification(
-                _get_bot(),
-                order_code,
-                status,
-                details=detail_text,
-            )
-        )
+        asyncio.run(_send_status_notification_async(order_code, status, detail_text))
     except Exception as exc:  # pragma: no cover - defensive logging
         logger.error("Failed to send renewal status notification: %s", exc, exc_info=True)
 
