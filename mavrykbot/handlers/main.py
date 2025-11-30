@@ -31,6 +31,7 @@ from telegram.ext import (
     CommandHandler,
     ContextTypes,
 )
+from telegram.error import Conflict
 
 from mavrykbot.core.config import load_bot_config
 from mavrykbot.handlers.Payment_Supply import get_payment_supply_conversation_handler
@@ -135,6 +136,10 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def application_error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if isinstance(context.error, Conflict):
+        logger.warning("Polling stopped because another instance is running: %s", context.error)
+        return
+
     logger.error("Unhandled exception while processing update.", exc_info=context.error)
     error_message = "Bot encountered an unexpected error."
     extra = {"update": str(update)} if update else None
