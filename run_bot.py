@@ -23,11 +23,11 @@ async def main() -> None:
     except Exception as exc:  # pragma: no cover - network failure
         logging.warning("Failed to delete webhook before polling: %s", exc)
 
+    updater = app.updater
     try:
-        await app.updater.start_polling()
-        await app.updater.wait_until_idle()
+        await updater.start_polling()
+        await updater.stop()  # blocks until stopped
     finally:
-        await app.updater.stop()
         await app.stop()
         await app.shutdown()
 
