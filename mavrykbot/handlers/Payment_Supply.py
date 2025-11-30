@@ -362,6 +362,23 @@ def _mark_orders_paid(order_ids: List[int]) -> None:
     db.execute(sql, params)
 
 
+def _create_remaining_payment_cycle(source_id: int, remaining_import: int) -> None:
+    if remaining_import <= 0:
+        return
+    today_str = datetime.now().strftime("%d/%m/%Y")
+    sql = f"""
+        INSERT INTO {PAYMENT_SUPPLY_TABLE} (
+            {PaymentSupplyColumns.SOURCE_ID},
+            {PaymentSupplyColumns.IMPORT},
+            {PaymentSupplyColumns.ROUND},
+            {PaymentSupplyColumns.STATUS},
+            {PaymentSupplyColumns.PAID}
+        )
+        VALUES (%s, %s, %s, %s, %s)
+    """
+    db.execute(sql, (source_id, remaining_import, today_str, PAYMENT_PENDING_STATUS, 0))
+
+
 async def handle_source_paid(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer("Đang xử lý...", show_alert=False)
@@ -388,10 +405,14 @@ async def handle_source_paid(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return VIEWING
 
     override_amount = entry.override_amount if (entry.override_amount is not None and entry.override_amount > 0) else None
-    paid_value = override_amount or order_sum or entry.expected_amount
+    expected_amount = entry.expected_amount or 0
+    paid_value = order_sum if order_sum else (override_amount or expected_amount)
+    remaining_import = expected_amount - order_sum if expected_amount > order_sum else 0
     try:
         _update_payment_supply(entry.payment_id, paid_value, entry.round_label)
         _mark_orders_paid(order_ids)
+        if remaining_import > 0:
+            _create_remaining_payment_cycle(entry.source_id, remaining_import)
     except Exception as exc:
         logger.error("Lỗi khi cập nhật trạng thái thanh toán %s: %s", entry.source_name, exc, exc_info=True)
         await query.answer("Không thể cập nhật cơ sở dữ liệu.", show_alert=True)
