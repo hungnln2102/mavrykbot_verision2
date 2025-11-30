@@ -16,10 +16,18 @@ async def main() -> None:
     logging.info("Starting Telegram bot in polling mode...")
     await app.initialize()
     await app.start()
+
+    # Ensure no webhook is set and drop any pending updates before polling
+    try:
+        await app.bot.delete_webhook(drop_pending_updates=True)
+    except Exception as exc:  # pragma: no cover - network failure
+        logging.warning("Failed to delete webhook before polling: %s", exc)
+
     try:
         await app.updater.start_polling()
-        await app.updater.idle()
+        await app.updater.wait_until_idle()
     finally:
+        await app.updater.stop()
         await app.stop()
         await app.shutdown()
 
