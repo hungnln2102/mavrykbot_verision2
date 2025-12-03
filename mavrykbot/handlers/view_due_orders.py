@@ -113,7 +113,7 @@ def _calc_sale_price(
         if ma.startswith("MAVC"):
             gia_ban = price_value * pct_ctv_val
         elif ma.startswith("MAVL"):
-            gia_ban = price_value * pct_ctv_val * pct_khach_val
+            gia_ban = price_value * pct_khach_val
         elif ma.startswith("MAVK"):
             gia_ban = price_value
         if gia_ban <= 0 and fallback_sale:
@@ -151,15 +151,24 @@ def fetch_due_orders(limit: int = MAX_DUE_ORDERS) -> list[DueOrder]:
             pp.{ProductPriceColumns.PCT_CTV},
             pp.{ProductPriceColumns.PCT_KHACH},
             s.{SupplyColumns.ID} AS source_id,
-            sp.{SupplyPriceColumns.PRICE} AS supply_price
+            sp_max.max_price AS max_supply_price,
+            sp_src.{SupplyPriceColumns.PRICE} AS supply_price_for_source
         FROM {ORDER_LIST_TABLE} AS ol
         LEFT JOIN {SUPPLY_TABLE} AS s
-            ON LOWER(s.{SupplyColumns.SOURCE_NAME}) = LOWER(ol.{OrderListColumns.NGUON})
+            ON LOWER(TRIM(s.{SupplyColumns.SOURCE_NAME})) = LOWER(TRIM(ol.{OrderListColumns.NGUON}))
         LEFT JOIN {PRODUCT_PRICE_TABLE} AS pp
-            ON LOWER(pp.{ProductPriceColumns.SAN_PHAM}) = LOWER(ol.{OrderListColumns.SAN_PHAM})
-        LEFT JOIN {SUPPLY_PRICE_TABLE} AS sp
-            ON sp.{SupplyPriceColumns.PRODUCT_ID} = pp.{ProductPriceColumns.ID}
-            AND sp.{SupplyPriceColumns.SOURCE_ID} = s.{SupplyColumns.ID}
+            ON LOWER(TRIM(pp.{ProductPriceColumns.SAN_PHAM})) = LOWER(TRIM(ol.{OrderListColumns.SAN_PHAM}))
+        LEFT JOIN (
+            SELECT
+                sp.{SupplyPriceColumns.PRODUCT_ID} AS product_id,
+                MAX(sp.{SupplyPriceColumns.PRICE}) AS max_price
+            FROM {SUPPLY_PRICE_TABLE} AS sp
+            GROUP BY sp.{SupplyPriceColumns.PRODUCT_ID}
+        ) AS sp_max
+            ON sp_max.product_id = pp.{ProductPriceColumns.ID}
+        LEFT JOIN {SUPPLY_PRICE_TABLE} AS sp_src
+            ON sp_src.{SupplyPriceColumns.PRODUCT_ID} = pp.{ProductPriceColumns.ID}
+            AND sp_src.{SupplyPriceColumns.SOURCE_ID} = s.{SupplyColumns.ID}
         WHERE LOWER(ol.{OrderListColumns.TINH_TRANG}) = LOWER(%s)
         ORDER BY ol.{OrderListColumns.HET_HAN} ASC
         LIMIT %s
@@ -187,17 +196,25 @@ def fetch_due_orders(limit: int = MAX_DUE_ORDERS) -> list[DueOrder]:
             pct_ctv,
             pct_khach,
             source_id,
-            supply_price,
+            supply_max_price,
+            supply_price_for_source,
         ) = row
         expiry = _coerce_date(expiry_date)
         days_left = (expiry - today).days if expiry else 0
         if days_left != TARGET_DAYS_LEFT:
             continue
 
-        base_price = supply_price if supply_price is not None else ol_cost
-        sale_price = _calc_sale_price(order_code, base_price, pct_ctv, pct_khach, ol_price)
-        if sale_price <= 0 and ol_price:
-            sale_price = _round_thousand(int(ol_price))
+        # Base cho giá nhập: ưu tiên giá theo source cụ thể, nếu không lấy cost trong order_list.
+        base_cost = supply_price_for_source if supply_price_for_source is not None else ol_cost
+        # Base cho giá bán: ưu tiên giá cao nhất trong supply_price theo product, nếu thiếu dùng base_cost.
+        base_sale_price = supply_max_price if supply_max_price is not None else base_cost
+
+        sale_price = _calc_sale_price(order_code, base_sale_price, pct_ctv, pct_khach, ol_price)
+        if sale_price <= 0:
+            if ol_price:
+                sale_price = _round_thousand(int(ol_price))
+            elif base_cost:
+                sale_price = _round_thousand(int(base_cost))
 
         due_orders.append(
             DueOrder(
