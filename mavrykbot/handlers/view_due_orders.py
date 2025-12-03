@@ -113,7 +113,7 @@ def _calc_sale_price(
         if ma.startswith("MAVC"):
             gia_ban = price_value * pct_ctv_val
         elif ma.startswith("MAVL"):
-            gia_ban = price_value * pct_khach_val
+            gia_ban = price_value * pct_ctv_val * pct_khach_val
         elif ma.startswith("MAVK"):
             gia_ban = price_value
         if gia_ban <= 0 and fallback_sale:
