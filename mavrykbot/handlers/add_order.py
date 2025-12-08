@@ -188,18 +188,46 @@ async def nhap_ten_sp_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
     )
 
     try:
-        sql_query = f"""
-            SELECT 
-                {ProductPriceColumns.ID}, {ProductPriceColumns.SAN_PHAM}, 
-                {ProductPriceColumns.PACKAGE}, {ProductPriceColumns.PACKAGE_PRODUCT}
-            FROM {PRODUCT_PRICE_TABLE}
-            WHERE 
-                {ProductPriceColumns.SAN_PHAM} ILIKE %s 
-                AND LOWER(CAST({ProductPriceColumns.IS_ACTIVE} AS TEXT)) = 'true'
-            ORDER BY {ProductPriceColumns.PACKAGE}, {ProductPriceColumns.PACKAGE_PRODUCT}
-        """
         search_term = f'%{ten_sp}%'
-        matched_products = db.fetch_all(sql_query, (search_term,))
+        matched_products = []
+
+        sql_templates = [
+            f"""
+                SELECT 
+                    {ProductPriceColumns.ID}, {ProductPriceColumns.SAN_PHAM}, 
+                    {ProductPriceColumns.PACKAGE}, {ProductPriceColumns.PACKAGE_PRODUCT}
+                FROM {PRODUCT_PRICE_TABLE}
+                WHERE 
+                    {ProductPriceColumns.PACKAGE} ILIKE %s 
+                    AND LOWER(CAST({ProductPriceColumns.IS_ACTIVE} AS TEXT)) = 'true'
+                ORDER BY {ProductPriceColumns.PACKAGE}, {ProductPriceColumns.PACKAGE_PRODUCT}
+            """,
+            f"""
+                SELECT 
+                    {ProductPriceColumns.ID}, {ProductPriceColumns.SAN_PHAM}, 
+                    {ProductPriceColumns.PACKAGE}, {ProductPriceColumns.PACKAGE_PRODUCT}
+                FROM {PRODUCT_PRICE_TABLE}
+                WHERE 
+                    {ProductPriceColumns.SAN_PHAM} ILIKE %s 
+                    AND LOWER(CAST({ProductPriceColumns.IS_ACTIVE} AS TEXT)) = 'true'
+                ORDER BY {ProductPriceColumns.PACKAGE}, {ProductPriceColumns.PACKAGE_PRODUCT}
+            """,
+            f"""
+                SELECT 
+                    {ProductPriceColumns.ID}, {ProductPriceColumns.SAN_PHAM}, 
+                    {ProductPriceColumns.PACKAGE}, {ProductPriceColumns.PACKAGE_PRODUCT}
+                FROM {PRODUCT_PRICE_TABLE}
+                WHERE 
+                    {ProductPriceColumns.PACKAGE_PRODUCT} ILIKE %s 
+                    AND LOWER(CAST({ProductPriceColumns.IS_ACTIVE} AS TEXT)) = 'true'
+                ORDER BY {ProductPriceColumns.PACKAGE}, {ProductPriceColumns.PACKAGE_PRODUCT}
+            """,
+        ]
+
+        for sql_query in sql_templates:
+            matched_products = db.fetch_all(sql_query, (search_term,))
+            if matched_products:
+                break
     except Exception as e:
         logger.error(f"Lỗi khi truy vấn PRODUCT_PRICE: {e}")
         await safe_edit_md(context.bot, chat_id, main_message_id, md("❌ Lỗi kết nối CSDL."))
