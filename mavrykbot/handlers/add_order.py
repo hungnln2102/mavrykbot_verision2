@@ -444,12 +444,21 @@ async def chon_ma_sp_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await safe_edit_md(context.bot, query.message.chat.id, query.message.message_id, md("❌ Lỗi kết nối CSDL khi tìm nguồn hàng."))
         return await end_add(update, context, success=False)
 
+    # Tính sẵn giá cao nhất để dùng khi tính bán (không phụ thuộc nguồn đã chọn).
+    max_supply_price = None
+    if source_prices:
+        try:
+            max_supply_price = max(Decimal(str(price)) for _, price in source_prices if price is not None)
+        except Exception:
+            max_supply_price = None
+    context.user_data["max_supply_price"] = max_supply_price
+
     # 2. Xây dựng Keyboard và Map giá
     keyboard, row = [], []
     source_price_map = {} 
     
     for src_name, price in source_prices:
-        price_display = f'{price:,} đ'.replace(',', '.') 
+        price_display = f'{int(price):,} đ'.replace(',', '.') if price is not None else "0 đ"
         label = f"{src_name} - {price_display}"
         row.append(InlineKeyboardButton(label, callback_data=f"chon_nguon|{src_name}"))
         source_price_map[src_name] = price 
@@ -487,15 +496,23 @@ async def chon_nguon_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     product_id = context.user_data.get('product_id')
     source_price_map = context.user_data.get('source_price_map', {})
+    max_supply_price = context.user_data.get("max_supply_price")
     ma_don = context.user_data.get("ma_don", "")
 
-    # 1. Lấy Giá nhập 
+    # 1. Giá nhập hiển thị lấy theo nguồn đã chọn (phục vụ lưu trữ), nhưng tính bán dùng giá cao nhất.
     gia_nhap = source_price_map.get(nguon, 0)
     context.user_data["gia_nhap_value"] = gia_nhap
-    logger.info(f"LOG_PRICE_CALC | Initial input price (gia_nhap) for source '{nguon}': {gia_nhap}")
-    
-    # Mặc định giá bán bằng giá nhập, sử dụng Decimal
-    gia_ban = Decimal(str(gia_nhap))
+    logger.info(f"LOG_PRICE_CALC | Selected source '{nguon}' input price: {gia_nhap}")
+
+    # Base để tính giá bán: luôn dùng giá cao nhất trong supply_price theo product (nếu có).
+    if max_supply_price is not None:
+        try:
+            price_value = Decimal(str(max_supply_price))
+        except Exception:
+            price_value = Decimal(str(gia_nhap))
+    else:
+        price_value = Decimal(str(gia_nhap))
+    gia_ban = price_value
 
     try:
         # 2. Lấy hệ số PCT từ bảng Product_Price cho sản phẩm đang chọn
@@ -514,28 +531,9 @@ async def chon_nguon_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 pct_khach = Decimal(str(pct_khach_raw)) if pct_khach_raw is not None else Decimal("1.0")
         logger.info(f"LOG_PRICE_CALC | Percentages - PCT_CTV: {pct_ctv}, PCT_KHACH: {pct_khach}")
 
-        # 3. Lấy ID của nguồn hàng
-        source_id = None
-        supply_query = f"SELECT {SupplyColumns.ID} FROM {SUPPLY_TABLE} WHERE {SupplyColumns.SOURCE_NAME} = %s"
-        supply_result = db.fetch_one(supply_query, (nguon,))
-        if supply_result:
-            source_id = supply_result[0]
-        logger.info(f"LOG_PRICE_CALC | Source id for '{nguon}': {source_id}")
+        logger.info(f"LOG_PRICE_CALC | Base price (max supply price or input): {price_value}")
 
-        # 4. Lấy giá nhập từ bảng supply_price theo product_id + source_id
-        price_value = Decimal(str(gia_nhap))
-        if product_id and source_id is not None:
-            supply_price_query = f"""
-                SELECT {SupplyPriceColumns.PRICE}
-                FROM {SUPPLY_PRICE_TABLE}
-                WHERE {SupplyPriceColumns.PRODUCT_ID} = %s AND {SupplyPriceColumns.SOURCE_ID} = %s
-            """
-            supply_price_result = db.fetch_one(supply_price_query, (product_id, source_id))
-            if supply_price_result and supply_price_result[0] is not None:
-                price_value = Decimal(str(supply_price_result[0]))
-        logger.info(f"LOG_PRICE_CALC | Supply price used: {price_value}")
-
-        # 5. Tính giá bán theo mã đơn hàng
+        # 3. Tính giá bán theo mã đơn hàng (không phụ thuộc nguồn cụ thể)
         if ma_don.startswith("MAVC"):
             gia_ban = price_value * pct_ctv
             logger.info(f"LOG_PRICE_CALC | MAVC branch: final_price = price * pct_ctv = {price_value} * {pct_ctv} = {gia_ban}")
