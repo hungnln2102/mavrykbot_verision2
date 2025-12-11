@@ -96,9 +96,13 @@ def _calc_sale_price(
     base_price: int | Decimal | None,
     pct_ctv: Decimal | None,
     pct_khach: Decimal | None,
-    fallback_sale: int | Decimal | None,
 ) -> int:
-    """Compute sale price from supply price + percentages based on order prefix."""
+    """
+    Compute sale price using the max supply price and percentage rules.
+    - MAVC: price * pct_ctv
+    - MAVL: price * pct_ctv * pct_khach
+    - other: base price (no multiplier)
+    """
     try:
         price_value = Decimal(str(base_price)) if base_price is not None else Decimal(0)
     except Exception:
@@ -108,20 +112,13 @@ def _calc_sale_price(
     pct_khach_val = Decimal(str(pct_khach)) if pct_khach is not None else Decimal("1.0")
 
     ma = (order_code or "").upper()
-    gia_ban = price_value
-    try:
-        if ma.startswith("MAVC"):
-            gia_ban = price_value * pct_ctv_val
-        elif ma.startswith("MAVL"):
-            gia_ban = price_value * pct_ctv_val * pct_khach_val
-        elif ma.startswith("MAVK"):
-            gia_ban = price_value
-        if gia_ban <= 0 and fallback_sale:
-            gia_ban = Decimal(str(fallback_sale))
-    except Exception:
-        if fallback_sale:
-            gia_ban = Decimal(str(fallback_sale))
-    return _round_thousand(int(gia_ban))
+    if ma.startswith("MAVC"):
+        gia_ban = price_value * pct_ctv_val
+    elif ma.startswith("MAVL"):
+        gia_ban = price_value * pct_ctv_val * pct_khach_val
+    else:
+        gia_ban = price_value
+    return _round_thousand(gia_ban)
 
 
 def fetch_due_orders(limit: int = MAX_DUE_ORDERS) -> list[DueOrder]:
@@ -146,18 +143,13 @@ def fetch_due_orders(limit: int = MAX_DUE_ORDERS) -> list[DueOrder]:
             ol.{OrderListColumns.NGUON},
             ol.{OrderListColumns.NOTE},
             ol.{OrderListColumns.GIA_BAN},
-            ol.{OrderListColumns.GIA_NHAP},
             pp.{ProductPriceColumns.ID} AS product_id,
             pp.{ProductPriceColumns.PCT_CTV},
             pp.{ProductPriceColumns.PCT_KHACH},
-            s.{SupplyColumns.ID} AS source_id,
-            sp_max.max_price AS max_supply_price,
-            sp_src.{SupplyPriceColumns.PRICE} AS supply_price_for_source
+            sp_max.max_price AS max_supply_price
         FROM {ORDER_LIST_TABLE} AS ol
-        LEFT JOIN {SUPPLY_TABLE} AS s
-            ON LOWER(TRIM(s.{SupplyColumns.SOURCE_NAME})) = LOWER(TRIM(ol.{OrderListColumns.NGUON}))
         LEFT JOIN {PRODUCT_PRICE_TABLE} AS pp
-            ON LOWER(TRIM(pp.{ProductPriceColumns.SAN_PHAM})) = LOWER(TRIM(ol.{OrderListColumns.SAN_PHAM}))
+            ON TRIM(pp.{ProductPriceColumns.SAN_PHAM}) = TRIM(ol.{OrderListColumns.SAN_PHAM})
         LEFT JOIN (
             SELECT
                 sp.{SupplyPriceColumns.PRODUCT_ID} AS product_id,
@@ -166,9 +158,6 @@ def fetch_due_orders(limit: int = MAX_DUE_ORDERS) -> list[DueOrder]:
             GROUP BY sp.{SupplyPriceColumns.PRODUCT_ID}
         ) AS sp_max
             ON sp_max.product_id = pp.{ProductPriceColumns.ID}
-        LEFT JOIN {SUPPLY_PRICE_TABLE} AS sp_src
-            ON sp_src.{SupplyPriceColumns.PRODUCT_ID} = pp.{ProductPriceColumns.ID}
-            AND sp_src.{SupplyPriceColumns.SOURCE_ID} = s.{SupplyColumns.ID}
         WHERE LOWER(ol.{OrderListColumns.TINH_TRANG}) = LOWER(%s)
         ORDER BY ol.{OrderListColumns.HET_HAN} ASC
         LIMIT %s
@@ -191,30 +180,22 @@ def fetch_due_orders(limit: int = MAX_DUE_ORDERS) -> list[DueOrder]:
             source,
             note,
             ol_price,
-            ol_cost,
             product_id,
             pct_ctv,
             pct_khach,
-            source_id,
             supply_max_price,
-            supply_price_for_source,
         ) = row
         expiry = _coerce_date(expiry_date)
         days_left = (expiry - today).days if expiry else 0
         if days_left != TARGET_DAYS_LEFT:
             continue
 
-        # Base cho giá nhập: ưu tiên giá theo source cụ thể, nếu không lấy cost trong order_list.
-        base_cost = supply_price_for_source if supply_price_for_source is not None else ol_cost
-        # Base cho giá bán: ưu tiên giá cao nhất trong supply_price theo product, nếu thiếu dùng base_cost.
-        base_sale_price = supply_max_price if supply_max_price is not None else base_cost
+        # Luôn dùng giá cao nhất của supply_price (theo sản phẩm) để tính, nhân theo tỷ lệ.
+        base_sale_price = supply_max_price if supply_max_price is not None else ol_price
 
-        sale_price = _calc_sale_price(order_code, base_sale_price, pct_ctv, pct_khach, ol_price)
-        if sale_price <= 0:
-            if ol_price:
-                sale_price = _round_thousand(int(ol_price))
-            elif base_cost:
-                sale_price = _round_thousand(int(base_cost))
+        sale_price = _calc_sale_price(order_code, base_sale_price, pct_ctv, pct_khach)
+        if sale_price <= 0 and ol_price:
+            sale_price = _round_thousand(ol_price)
 
         due_orders.append(
             DueOrder(
