@@ -145,15 +145,17 @@ def insert_payment_receipt(transaction_data: Dict[str, Any]) -> None:
 
     amount_raw = transaction_data.get("amount_in", "0")
     amount = int(str(amount_raw).split(".")[0] or 0)
+    receiver = transaction_data.get("receiver") or transaction_data.get("receiver_name") or ""
 
     sql = f"""
         INSERT INTO {PAYMENT_RECEIPT_TABLE} (
             {PaymentReceiptColumns.MA_DON_HANG},
             {PaymentReceiptColumns.NGAY_THANH_TOAN},
             {PaymentReceiptColumns.SO_TIEN},
+            {PaymentReceiptColumns.RECEIVER},
             {PaymentReceiptColumns.NGUOI_GUI},
             {PaymentReceiptColumns.NOI_DUNG_CK}
-        ) VALUES (%s, %s, %s, %s, %s)
+        ) VALUES (%s, %s, %s, %s, %s, %s)
     """
     db.execute(
         sql,
@@ -161,6 +163,7 @@ def insert_payment_receipt(transaction_data: Dict[str, Any]) -> None:
             order_code,
             paid_date,
             amount,
+            receiver,
             sender,
             transaction_data.get("transaction_content", ""),
         ),

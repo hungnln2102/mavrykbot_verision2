@@ -10,10 +10,10 @@ class AccountStorageColumns:
     ID: Final[str] = "id"
     USERNAME: Final[str] = "username"
     PASSWORD: Final[str] = "password"
-    MAIL_2ND: Final[str] = "Mail 2nd"
+    MAIL_2ND: Final[str] = "mail_2nd"
     NOTE: Final[str] = "note"
     STORAGE: Final[str] = "storage"
-    MAIL_FAMILY: Final[str] = "Mail Family"
+    MAIL_FAMILY: Final[str] = "mail_family"
 
 BANK_LIST_TABLE: Final[str] = f"{SCHEMA}.bank_list"
 class BankListColumns:
@@ -23,39 +23,40 @@ class BankListColumns:
 ORDER_CANCELED_TABLE: Final[str] = f"{SCHEMA}.order_canceled"
 class OrderCanceledColumns:
     ID: Final[str] = "id"
-    ID_DON_HANG: Final[str] = "id_don_hang"
-    SAN_PHAM: Final[str] = "san_pham"
-    THONG_TIN_SAN_PHAM: Final[str] = "thong_tin_san_pham"
-    KHACH_HANG: Final[str] = "khach_hang"
-    LINK_LIEN_HE: Final[str] = "link_lien_he"
+    ID_DON_HANG: Final[str] = "id_order"
+    SAN_PHAM: Final[str] = "id_product"
+    THONG_TIN_SAN_PHAM: Final[str] = "information_order"
+    KHACH_HANG: Final[str] = "customer"
+    LINK_LIEN_HE: Final[str] = "contact"
     SLOT: Final[str] = "slot"
-    NGAY_DANG_KI: Final[str] = "ngay_dang_ki"
-    SO_NGAY_DA_DANG_KI: Final[str] = "so_ngay_da_dang_ki"
-    HET_HAN: Final[str] = "het_han"
-    NGUON: Final[str] = "nguon"
-    GIA_NHAP: Final[str] = "gia_nhap"
-    GIA_BAN: Final[str] = "gia_ban"
-    CAN_HOAN: Final[str] = "can_hoan"
-    TINH_TRANG: Final[str] = "tinh_trang"
+    NGAY_DANG_KI: Final[str] = "order_date"
+    SO_NGAY_DA_DANG_KI: Final[str] = "days"
+    HET_HAN: Final[str] = "order_expired"
+    NGUON: Final[str] = "supply"
+    GIA_NHAP: Final[str] = "cost"
+    GIA_BAN: Final[str] = "price"
+    CAN_HOAN: Final[str] = "refund"
+    TINH_TRANG: Final[str] = "status"
     CHECK_FLAG: Final[str] = "check_flag"
+    CREATE_DATE: Final[str] = "createdate"
 
 ORDER_EXPIRED_TABLE: Final[str] = f"{SCHEMA}.order_expired"
 class OrderExpiredColumns:
     ID: Final[str] = "id"
-    ID_DON_HANG: Final[str] = "id_don_hang"
-    SAN_PHAM: Final[str] = "san_pham"
-    THONG_TIN_SAN_PHAM: Final[str] = "thong_tin_san_pham"
-    KHACH_HANG: Final[str] = "khach_hang"
-    LINK_LIEN_HE: Final[str] = "link_lien_he"
+    ID_DON_HANG: Final[str] = "id_order"
+    SAN_PHAM: Final[str] = "id_product"
+    THONG_TIN_SAN_PHAM: Final[str] = "information_order"
+    KHACH_HANG: Final[str] = "customer"
+    LINK_LIEN_HE: Final[str] = "contact"
     SLOT: Final[str] = "slot"
-    NGAY_DANG_KI: Final[str] = "ngay_dang_ki"
-    SO_NGAY_DA_DANG_KI: Final[str] = "so_ngay_da_dang_ki"
-    HET_HAN: Final[str] = "het_han"
-    NGUON: Final[str] = "nguon"
-    GIA_NHAP: Final[str] = "gia_nhap"
-    GIA_BAN: Final[str] = "gia_ban"
+    NGAY_DANG_KI: Final[str] = "order_date"
+    SO_NGAY_DA_DANG_KI: Final[str] = "days"
+    HET_HAN: Final[str] = "order_expired"
+    NGUON: Final[str] = "supply"
+    GIA_NHAP: Final[str] = "cost"
+    GIA_BAN: Final[str] = "price"
     NOTE: Final[str] = "note"
-    TINH_TRANG: Final[str] = "tinh_trang"
+    TINH_TRANG: Final[str] = "status"
     CHECK_FLAG: Final[str] = "check_flag"
     ARCHIVED_AT: Final[str] = "archived_at"
 
@@ -84,21 +85,24 @@ class PackageProductColumns:
     PACKAGE: Final[str] = "package"
     USERNAME: Final[str] = "username"
     PASSWORD: Final[str] = "password"
-    MAIL_2ND: Final[str] = "mail 2nd"
+    MAIL_2ND: Final[str] = "mail_2nd"
     NOTE: Final[str] = "note"
     EXPIRED: Final[str] = "expired"
     SUPPLIER: Final[str] = "supplier"
-    IMPORT: Final[str] = "Import"
+    COST: Final[str] = "cost"
     SLOT: Final[str] = "slot"
+    MATCH: Final[str] = "match"
+    IMPORT: Final[str] = COST
 
 PAYMENT_RECEIPT_TABLE: Final[str] = f"{SCHEMA}.payment_receipt"
 class PaymentReceiptColumns:
     ID: Final[str] = "id"
-    MA_DON_HANG: Final[str] = "ma_don_hang"
-    NGAY_THANH_TOAN: Final[str] = "ngay_thanh_toan"
-    SO_TIEN: Final[str] = "so_tien"
-    NGUOI_GUI: Final[str] = "nguoi_gui"
-    NOI_DUNG_CK: Final[str] = "noi_dung_ck"
+    MA_DON_HANG: Final[str] = "id_order"
+    NGAY_THANH_TOAN: Final[str] = "payment_date"
+    SO_TIEN: Final[str] = "amount"
+    RECEIVER: Final[str] = "receiver"
+    NGUOI_GUI: Final[str] = "sender"
+    NOI_DUNG_CK: Final[str] = "note"
 
 PAYMENT_SUPPLY_TABLE: Final[str] = f"{SCHEMA}.payment_supply"
 class PaymentSupplyColumns:
@@ -112,7 +116,7 @@ class PaymentSupplyColumns:
 PRODUCT_PRICE_TABLE: Final[str] = f"{SCHEMA}.product_price"
 class ProductPriceColumns:
     ID: Final[str] = "id"
-    SAN_PHAM: Final[str] = "san_pham"
+    SAN_PHAM: Final[str] = "id_product"
     PCT_CTV: Final[str] = "pct_ctv"
     PCT_KHACH: Final[str] = "pct_khach"
     IS_ACTIVE: Final[str] = "is_active"
@@ -142,6 +146,14 @@ class SupplyPriceColumns:
     PRODUCT_ID: Final[str] = "product_id"
     SOURCE_ID: Final[str] = "source_id"
     PRICE: Final[str] = "price"
+
+PRODUCT_DESC_TABLE: Final[str] = f"{SCHEMA}.product_desc"
+class ProductDescColumns:
+    ID: Final[str] = "id"
+    PRODUCT_ID: Final[str] = "product_id"
+    RULES: Final[str] = "rules"
+    DESCRIPTION: Final[str] = "description"
+    IMAGE_URL: Final[str] = "image_url"
 
 COLUMNS: Final[Mapping[str, Mapping[str, str]]] = {
     "account_storage": {
@@ -174,6 +186,7 @@ COLUMNS: Final[Mapping[str, Mapping[str, str]]] = {
         "CAN_HOAN": OrderCanceledColumns.CAN_HOAN,
         "TINH_TRANG": OrderCanceledColumns.TINH_TRANG,
         "CHECK_FLAG": OrderCanceledColumns.CHECK_FLAG,
+        "CREATE_DATE": OrderCanceledColumns.CREATE_DATE,
     },
     "order_expired": {
         "ID": OrderExpiredColumns.ID,
@@ -221,14 +234,17 @@ COLUMNS: Final[Mapping[str, Mapping[str, str]]] = {
         "NOTE": PackageProductColumns.NOTE,
         "EXPIRED": PackageProductColumns.EXPIRED,
         "SUPPLIER": PackageProductColumns.SUPPLIER,
+        "COST": PackageProductColumns.COST,
         "IMPORT": PackageProductColumns.IMPORT,
         "SLOT": PackageProductColumns.SLOT,
+        "MATCH": PackageProductColumns.MATCH,
     },
     "payment_receipt": {
         "ID": PaymentReceiptColumns.ID,
         "MA_DON_HANG": PaymentReceiptColumns.MA_DON_HANG,
         "NGAY_THANH_TOAN": PaymentReceiptColumns.NGAY_THANH_TOAN,
         "SO_TIEN": PaymentReceiptColumns.SO_TIEN,
+        "RECEIVER": PaymentReceiptColumns.RECEIVER,
         "NGUOI_GUI": PaymentReceiptColumns.NGUOI_GUI,
         "NOI_DUNG_CK": PaymentReceiptColumns.NOI_DUNG_CK,
     },
@@ -250,6 +266,13 @@ COLUMNS: Final[Mapping[str, Mapping[str, str]]] = {
         "PACKAGE_PRODUCT": ProductPriceColumns.PACKAGE_PRODUCT,
         "UPDATE": ProductPriceColumns.UPDATE,
         "PCT_PROMO": ProductPriceColumns.PCT_PROMO,
+    },
+    "product_desc": {
+        "ID": ProductDescColumns.ID,
+        "PRODUCT_ID": ProductDescColumns.PRODUCT_ID,
+        "RULES": ProductDescColumns.RULES,
+        "DESCRIPTION": ProductDescColumns.DESCRIPTION,
+        "IMAGE_URL": ProductDescColumns.IMAGE_URL,
     },
     "refund": {
         "ID": RefundColumns.ID,
