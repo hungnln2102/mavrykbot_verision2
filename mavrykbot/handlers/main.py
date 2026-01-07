@@ -36,7 +36,7 @@ from telegram.error import Conflict
 from mavrykbot.core.config import load_bot_config
 from mavrykbot.handlers.Payment_Supply import get_payment_supply_conversation_handler
 from mavrykbot.handlers.View_order_unpaid import get_unpaid_order_conversation_handler
-from mavrykbot.handlers.add_order import get_add_order_conversation_handler
+from mavrykbot.handlers.Order.add_order import get_add_order_conversation_handler
 from mavrykbot.handlers.menu import show_main_selector, show_outer_menu
 from mavrykbot.handlers.update_order import get_update_order_conversation_handler
 from mavrykbot.handlers.view_due_orders import check_due_orders_job, test_due_orders_command

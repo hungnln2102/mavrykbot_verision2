@@ -1,27 +1,44 @@
-"""Constants for PostgreSQL tables/columns in schema "mavryk"."""
+"""Constants for PostgreSQL tables/columns across schemas (mavryk/orders/product/partner)."""
 from __future__ import annotations
 
+import os
 from typing import Final, Mapping
 
-SCHEMA: Final[str] = "mavryk"
 
-ACCOUNT_STORAGE_TABLE: Final[str] = f"{SCHEMA}.account_storage"
-class AccountStorageColumns:
+def _table(schema: str | None, name: str) -> str:
+    return f"{schema}.{name}" if schema else name
+
+
+# Schema names (override via environment to match the running DB)
+SCHEMA: Final[str] = os.getenv("DB_SCHEMA", "mavryk")
+SCHEMA_ORDERS: Final[str] = os.getenv("DB_SCHEMA_ORDERS", "orders")
+SCHEMA_PRODUCT: Final[str] = os.getenv("DB_SCHEMA_PRODUCT", "product")
+SCHEMA_PARTNER: Final[str] = os.getenv("DB_SCHEMA_PARTNER", "partner")
+
+PAYMENT_RECEIPT_TABLE: Final[str] = _table(SCHEMA, "payment_receipt")
+class PaymentReceiptColumns:
     ID: Final[str] = "id"
-    USERNAME: Final[str] = "username"
-    PASSWORD: Final[str] = "password"
-    MAIL_2ND: Final[str] = "mail_2nd"
-    NOTE: Final[str] = "note"
-    STORAGE: Final[str] = "storage"
-    MAIL_FAMILY: Final[str] = "mail_family"
+    MA_DON_HANG: Final[str] = "id_order"
+    NGAY_THANH_TOAN: Final[str] = "payment_date"
+    SO_TIEN: Final[str] = "amount"
+    RECEIVER: Final[str] = "receiver"
+    NGUOI_GUI: Final[str] = "sender"
+    NOI_DUNG_CK: Final[str] = "note"
 
-BANK_LIST_TABLE: Final[str] = f"{SCHEMA}.bank_list"
-class BankListColumns:
-    BIN: Final[str] = "bin"
-    BANK_NAME: Final[str] = "bank_name"
+PAYMENT_SUPPLY_TABLE: Final[str] = _table(SCHEMA, "payment_supply")
+class PaymentSupplyColumns:
+    ID: Final[str] = "id"
+    SOURCE_ID: Final[str] = "source_id"
+    IMPORT: Final[str] = "import"
+    ROUND: Final[str] = "round"
+    STATUS: Final[str] = "status"
+    PAID: Final[str] = "paid"
 
-ORDER_CANCELED_TABLE: Final[str] = f"{SCHEMA}.order_canceled"
-class OrderCanceledColumns:
+# ----------------------------
+# Orders schema (SCHEMA_ORDERS)
+# ----------------------------
+ORDER_LIST_TABLE: Final[str] = _table(SCHEMA_ORDERS, "order_list")
+class OrderListColumns:
     ID: Final[str] = "id"
     ID_DON_HANG: Final[str] = "id_order"
     SAN_PHAM: Final[str] = "id_product"
@@ -35,12 +52,11 @@ class OrderCanceledColumns:
     NGUON: Final[str] = "supply"
     GIA_NHAP: Final[str] = "cost"
     GIA_BAN: Final[str] = "price"
-    CAN_HOAN: Final[str] = "refund"
+    NOTE: Final[str] = "note"
     TINH_TRANG: Final[str] = "status"
     CHECK_FLAG: Final[str] = "check_flag"
-    CREATE_DATE: Final[str] = "createdate"
 
-ORDER_EXPIRED_TABLE: Final[str] = f"{SCHEMA}.order_expired"
+ORDER_EXPIRED_TABLE: Final[str] = _table(SCHEMA_ORDERS, "order_expired")
 class OrderExpiredColumns:
     ID: Final[str] = "id"
     ID_DON_HANG: Final[str] = "id_order"
@@ -60,8 +76,8 @@ class OrderExpiredColumns:
     CHECK_FLAG: Final[str] = "check_flag"
     ARCHIVED_AT: Final[str] = "archived_at"
 
-ORDER_LIST_TABLE: Final[str] = f"{SCHEMA}.order_list"
-class OrderListColumns:
+ORDER_CANCELED_TABLE: Final[str] = _table(SCHEMA_ORDERS, "order_canceled")
+class OrderCanceledColumns:
     ID: Final[str] = "id"
     ID_DON_HANG: Final[str] = "id_order"
     SAN_PHAM: Final[str] = "id_product"
@@ -78,97 +94,60 @@ class OrderListColumns:
     NOTE: Final[str] = "note"
     TINH_TRANG: Final[str] = "status"
     CHECK_FLAG: Final[str] = "check_flag"
+    CAN_HOAN: Final[str] = "refund"
+    REFUND: Final[str] = CAN_HOAN
+    CREATE_DATE: Final[str] = "createdate"
 
-PACKAGE_PRODUCT_TABLE: Final[str] = f"{SCHEMA}.package_product"
-class PackageProductColumns:
+# ----------------------------
+PRODUCT_TABLE: Final[str] = _table(SCHEMA_PRODUCT, "product")
+class ProductColumns:
     ID: Final[str] = "id"
-    PACKAGE: Final[str] = "package"
-    USERNAME: Final[str] = "username"
-    PASSWORD: Final[str] = "password"
-    MAIL_2ND: Final[str] = "mail_2nd"
-    NOTE: Final[str] = "note"
-    EXPIRED: Final[str] = "expired"
-    SUPPLIER: Final[str] = "supplier"
-    COST: Final[str] = "cost"
-    SLOT: Final[str] = "slot"
-    MATCH: Final[str] = "match"
-    IMPORT: Final[str] = COST
+    CATEGORY_ID: Final[str] = "category_id"
+    PACKAGE_NAME: Final[str] = "package_name"
 
-PAYMENT_RECEIPT_TABLE: Final[str] = f"{SCHEMA}.payment_receipt"
-class PaymentReceiptColumns:
+PRICE_CONFIG_TABLE: Final[str] = _table(SCHEMA_PRODUCT, "price_config")
+class PriceConfigColumns:
     ID: Final[str] = "id"
-    MA_DON_HANG: Final[str] = "id_order"
-    NGAY_THANH_TOAN: Final[str] = "payment_date"
-    SO_TIEN: Final[str] = "amount"
-    RECEIVER: Final[str] = "receiver"
-    NGUOI_GUI: Final[str] = "sender"
-    NOI_DUNG_CK: Final[str] = "note"
-
-PAYMENT_SUPPLY_TABLE: Final[str] = f"{SCHEMA}.payment_supply"
-class PaymentSupplyColumns:
-    ID: Final[str] = "id"
-    SOURCE_ID: Final[str] = "source_id"
-    IMPORT: Final[str] = "import"
-    ROUND: Final[str] = "round"
-    STATUS: Final[str] = "status"
-    PAID: Final[str] = "paid"
-
-PRODUCT_PRICE_TABLE: Final[str] = f"{SCHEMA}.product_price"
-class ProductPriceColumns:
-    ID: Final[str] = "id"
-    SAN_PHAM: Final[str] = "id_product"
+    VARIANT_ID: Final[str] = "variant_id"
     PCT_CTV: Final[str] = "pct_ctv"
     PCT_KHACH: Final[str] = "pct_khach"
-    IS_ACTIVE: Final[str] = "is_active"
-    PACKAGE: Final[str] = "package"
-    PACKAGE_PRODUCT: Final[str] = "package_product"
-    UPDATE: Final[str] = "update"
     PCT_PROMO: Final[str] = "pct_promo"
+    UPDATED_AT: Final[str] = "updated_at"
 
-REFUND_TABLE: Final[str] = f"{SCHEMA}.refund"
-class RefundColumns:
+# Keep the raw variant table reference for direct queries when needed.
+VARIANT_TABLE: Final[str] = _table(SCHEMA_PRODUCT, "variant")
+class VariantColumns:
     ID: Final[str] = "id"
-    MA_DON_HANG: Final[str] = "ma_don_hang"
-    NGAY_THANH_TOAN: Final[str] = "ngay_thanh_toan"
-    SO_TIEN: Final[str] = "so_tien"
+    PRODUCT_ID: Final[str] = "product_id"
+    VARIANT_NAME: Final[str] = "variant_name"
+    IS_ACTIVE: Final[str] = "is_active"
+    DISPLAY_NAME: Final[str] = "display_name"
+    PACKAGE_NAME: Final[str] = "package_name"  # join from product if selected
 
-SUPPLY_TABLE: Final[str] = f"{SCHEMA}.supply"
+# ----------------------------
+# Partner schema (SCHEMA_PARTNER)
+# ----------------------------
+SUPPLIER_TABLE: Final[str] = _table(SCHEMA_PARTNER, "supplier")
+SUPPLY_TABLE: Final[str] = SUPPLIER_TABLE
 class SupplyColumns:
-    SOURCE_NAME: Final[str] = "source_name"
     ID: Final[str] = "id"
+    SOURCE_NAME: Final[str] = "supplier_name"
+    SUPPLIER_NAME: Final[str] = SOURCE_NAME
     NUMBER_BANK: Final[str] = "number_bank"
     BIN_BANK: Final[str] = "bin_bank"
     ACTIVE_SUPPLY: Final[str] = "active_supply"
 
-SUPPLY_PRICE_TABLE: Final[str] = f"{SCHEMA}.supply_price"
+SUPPLIER_COST_TABLE: Final[str] = _table(SCHEMA_PARTNER, "supplier_cost")
+SUPPLY_PRICE_TABLE: Final[str] = SUPPLIER_COST_TABLE
 class SupplyPriceColumns:
     ID: Final[str] = "id"
     PRODUCT_ID: Final[str] = "product_id"
-    SOURCE_ID: Final[str] = "source_id"
+    SOURCE_ID: Final[str] = "supplier_id"
+    SUPPLIER_ID: Final[str] = SOURCE_ID
     PRICE: Final[str] = "price"
 
-PRODUCT_DESC_TABLE: Final[str] = f"{SCHEMA}.product_desc"
-class ProductDescColumns:
-    ID: Final[str] = "id"
-    PRODUCT_ID: Final[str] = "product_id"
-    RULES: Final[str] = "rules"
-    DESCRIPTION: Final[str] = "description"
-    IMAGE_URL: Final[str] = "image_url"
 
 COLUMNS: Final[Mapping[str, Mapping[str, str]]] = {
-    "account_storage": {
-        "ID": AccountStorageColumns.ID,
-        "USERNAME": AccountStorageColumns.USERNAME,
-        "PASSWORD": AccountStorageColumns.PASSWORD,
-        "MAIL_2ND": AccountStorageColumns.MAIL_2ND,
-        "NOTE": AccountStorageColumns.NOTE,
-        "STORAGE": AccountStorageColumns.STORAGE,
-        "MAIL_FAMILY": AccountStorageColumns.MAIL_FAMILY,
-    },
-    "bank_list": {
-        "BIN": BankListColumns.BIN,
-        "BANK_NAME": BankListColumns.BANK_NAME,
-    },
     "order_canceled": {
         "ID": OrderCanceledColumns.ID,
         "ID_DON_HANG": OrderCanceledColumns.ID_DON_HANG,
@@ -183,9 +162,10 @@ COLUMNS: Final[Mapping[str, Mapping[str, str]]] = {
         "NGUON": OrderCanceledColumns.NGUON,
         "GIA_NHAP": OrderCanceledColumns.GIA_NHAP,
         "GIA_BAN": OrderCanceledColumns.GIA_BAN,
-        "CAN_HOAN": OrderCanceledColumns.CAN_HOAN,
+        "NOTE": OrderCanceledColumns.NOTE,
         "TINH_TRANG": OrderCanceledColumns.TINH_TRANG,
         "CHECK_FLAG": OrderCanceledColumns.CHECK_FLAG,
+        "CAN_HOAN": OrderCanceledColumns.CAN_HOAN,
         "CREATE_DATE": OrderCanceledColumns.CREATE_DATE,
     },
     "order_expired": {
@@ -225,20 +205,6 @@ COLUMNS: Final[Mapping[str, Mapping[str, str]]] = {
         "TINH_TRANG": OrderListColumns.TINH_TRANG,
         "CHECK_FLAG": OrderListColumns.CHECK_FLAG,
     },
-    "package_product": {
-        "ID": PackageProductColumns.ID,
-        "PACKAGE": PackageProductColumns.PACKAGE,
-        "USERNAME": PackageProductColumns.USERNAME,
-        "PASSWORD": PackageProductColumns.PASSWORD,
-        "MAIL_2ND": PackageProductColumns.MAIL_2ND,
-        "NOTE": PackageProductColumns.NOTE,
-        "EXPIRED": PackageProductColumns.EXPIRED,
-        "SUPPLIER": PackageProductColumns.SUPPLIER,
-        "COST": PackageProductColumns.COST,
-        "IMPORT": PackageProductColumns.IMPORT,
-        "SLOT": PackageProductColumns.SLOT,
-        "MATCH": PackageProductColumns.MATCH,
-    },
     "payment_receipt": {
         "ID": PaymentReceiptColumns.ID,
         "MA_DON_HANG": PaymentReceiptColumns.MA_DON_HANG,
@@ -256,41 +222,33 @@ COLUMNS: Final[Mapping[str, Mapping[str, str]]] = {
         "STATUS": PaymentSupplyColumns.STATUS,
         "PAID": PaymentSupplyColumns.PAID,
     },
-    "product_price": {
-        "ID": ProductPriceColumns.ID,
-        "SAN_PHAM": ProductPriceColumns.SAN_PHAM,
-        "PCT_CTV": ProductPriceColumns.PCT_CTV,
-        "PCT_KHACH": ProductPriceColumns.PCT_KHACH,
-        "IS_ACTIVE": ProductPriceColumns.IS_ACTIVE,
-        "PACKAGE": ProductPriceColumns.PACKAGE,
-        "PACKAGE_PRODUCT": ProductPriceColumns.PACKAGE_PRODUCT,
-        "UPDATE": ProductPriceColumns.UPDATE,
-        "PCT_PROMO": ProductPriceColumns.PCT_PROMO,
+    "price_config": {
+        "ID": PriceConfigColumns.ID,
+        "VARIANT_ID": PriceConfigColumns.VARIANT_ID,
+        "PCT_CTV": PriceConfigColumns.PCT_CTV,
+        "PCT_KHACH": PriceConfigColumns.PCT_KHACH,
+        "PCT_PROMO": PriceConfigColumns.PCT_PROMO,
+        "UPDATED_AT": PriceConfigColumns.UPDATED_AT,
     },
-    "product_desc": {
-        "ID": ProductDescColumns.ID,
-        "PRODUCT_ID": ProductDescColumns.PRODUCT_ID,
-        "RULES": ProductDescColumns.RULES,
-        "DESCRIPTION": ProductDescColumns.DESCRIPTION,
-        "IMAGE_URL": ProductDescColumns.IMAGE_URL,
+    "variant": {
+        "ID": VariantColumns.ID,
+        "PRODUCT_ID": VariantColumns.PRODUCT_ID,
+        "VARIANT_NAME": VariantColumns.VARIANT_NAME,
+        "IS_ACTIVE": VariantColumns.IS_ACTIVE,
+        "DISPLAY_NAME": VariantColumns.DISPLAY_NAME,
+        "PACKAGE_NAME": VariantColumns.PACKAGE_NAME,
     },
-    "refund": {
-        "ID": RefundColumns.ID,
-        "MA_DON_HANG": RefundColumns.MA_DON_HANG,
-        "NGAY_THANH_TOAN": RefundColumns.NGAY_THANH_TOAN,
-        "SO_TIEN": RefundColumns.SO_TIEN,
-    },
-    "supply": {
-        "SOURCE_NAME": SupplyColumns.SOURCE_NAME,
+    "supplier": {
         "ID": SupplyColumns.ID,
+        "SUPPLIER_NAME": SupplyColumns.SOURCE_NAME,
         "NUMBER_BANK": SupplyColumns.NUMBER_BANK,
         "BIN_BANK": SupplyColumns.BIN_BANK,
         "ACTIVE_SUPPLY": SupplyColumns.ACTIVE_SUPPLY,
     },
-    "supply_price": {
+    "supplier_cost": {
         "ID": SupplyPriceColumns.ID,
         "PRODUCT_ID": SupplyPriceColumns.PRODUCT_ID,
-        "SOURCE_ID": SupplyPriceColumns.SOURCE_ID,
+        "SUPPLIER_ID": SupplyPriceColumns.SOURCE_ID,
         "PRICE": SupplyPriceColumns.PRICE,
     },
 }

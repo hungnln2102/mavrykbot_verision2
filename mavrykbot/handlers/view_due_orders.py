@@ -16,16 +16,19 @@ from telegram.ext import ContextTypes
 from mavrykbot.core.database import db
 from mavrykbot.core.db_schema import (
     ORDER_LIST_TABLE,
-    PRODUCT_PRICE_TABLE,
+    PRICE_CONFIG_TABLE,
     SUPPLY_PRICE_TABLE,
     SUPPLY_TABLE,
+    VARIANT_TABLE,
     OrderListColumns,
-    ProductPriceColumns,
+    PriceConfigColumns,
     SupplyColumns,
     SupplyPriceColumns,
+    VariantColumns,
 )
 from mavrykbot.core.config import load_topic_config
 from mavrykbot.core.utils import escape_mdv2
+from mavrykbot.handlers.Order.calculate_price import calculate_sale_price
 
 TOPIC_CONFIG = load_topic_config()
 
@@ -81,44 +84,16 @@ def _coerce_date(value) -> Optional[date]:
 
 
 def _round_thousand(value: int | Decimal) -> int:
-    """Round positive numbers up to the nearest thousand; otherwise return 0."""
+    """Round to nearest thousand: >=500 goes up, <500 goes down; non-positive -> 0."""
     try:
         number = int(Decimal(value))
     except Exception:
         return 0
     if number <= 0:
         return 0
-    return ((number + 999) // 1000) * 1000
-
-
-def _calc_sale_price(
-    order_code: str,
-    base_price: int | Decimal | None,
-    pct_ctv: Decimal | None,
-    pct_khach: Decimal | None,
-) -> int:
-    """
-    Compute sale price using the max supply price and percentage rules.
-    - MAVC: price * pct_ctv
-    - MAVL: price * pct_ctv * pct_khach
-    - other: base price (no multiplier)
-    """
-    try:
-        price_value = Decimal(str(base_price)) if base_price is not None else Decimal(0)
-    except Exception:
-        price_value = Decimal(0)
-
-    pct_ctv_val = Decimal(str(pct_ctv)) if pct_ctv is not None else Decimal("1.0")
-    pct_khach_val = Decimal(str(pct_khach)) if pct_khach is not None else Decimal("1.0")
-
-    ma = (order_code or "").upper()
-    if ma.startswith("MAVC"):
-        gia_ban = price_value * pct_ctv_val
-    elif ma.startswith("MAVL"):
-        gia_ban = price_value * pct_ctv_val * pct_khach_val
-    else:
-        gia_ban = price_value
-    return _round_thousand(gia_ban)
+    remainder = number % 1000
+    base = number - remainder
+    return base + 1000 if remainder >= 500 else base
 
 
 def fetch_due_orders(limit: int = MAX_DUE_ORDERS) -> list[DueOrder]:
@@ -143,13 +118,17 @@ def fetch_due_orders(limit: int = MAX_DUE_ORDERS) -> list[DueOrder]:
             ol.{OrderListColumns.NGUON},
             ol.{OrderListColumns.NOTE},
             ol.{OrderListColumns.GIA_BAN},
-            pp.{ProductPriceColumns.ID} AS product_id,
-            pp.{ProductPriceColumns.PCT_CTV},
-            pp.{ProductPriceColumns.PCT_KHACH},
+            ol.{OrderListColumns.GIA_NHAP},
+            v.{VariantColumns.ID} AS product_id,
+            pc.{PriceConfigColumns.PCT_CTV},
+            pc.{PriceConfigColumns.PCT_KHACH},
+            pc.{PriceConfigColumns.PCT_PROMO},
             sp_max.max_price AS max_supply_price
         FROM {ORDER_LIST_TABLE} AS ol
-        LEFT JOIN {PRODUCT_PRICE_TABLE} AS pp
-            ON TRIM(pp.{ProductPriceColumns.SAN_PHAM}) = TRIM(ol.{OrderListColumns.SAN_PHAM})
+        LEFT JOIN {VARIANT_TABLE} AS v
+            ON TRIM(v.{VariantColumns.DISPLAY_NAME}) = TRIM(ol.{OrderListColumns.SAN_PHAM})
+        LEFT JOIN {PRICE_CONFIG_TABLE} AS pc
+            ON pc.{PriceConfigColumns.VARIANT_ID} = v.{VariantColumns.ID}
         LEFT JOIN (
             SELECT
                 sp.{SupplyPriceColumns.PRODUCT_ID} AS product_id,
@@ -157,7 +136,7 @@ def fetch_due_orders(limit: int = MAX_DUE_ORDERS) -> list[DueOrder]:
             FROM {SUPPLY_PRICE_TABLE} AS sp
             GROUP BY sp.{SupplyPriceColumns.PRODUCT_ID}
         ) AS sp_max
-            ON sp_max.product_id = pp.{ProductPriceColumns.ID}
+            ON sp_max.product_id = v.{VariantColumns.ID}
         WHERE LOWER(ol.{OrderListColumns.TINH_TRANG}) = LOWER(%s)
         ORDER BY ol.{OrderListColumns.HET_HAN} ASC
         LIMIT %s
@@ -180,9 +159,11 @@ def fetch_due_orders(limit: int = MAX_DUE_ORDERS) -> list[DueOrder]:
             source,
             note,
             ol_price,
+            ol_cost,
             product_id,
             pct_ctv,
             pct_khach,
+            pct_promo,
             supply_max_price,
         ) = row
         expiry = _coerce_date(expiry_date)
@@ -193,9 +174,17 @@ def fetch_due_orders(limit: int = MAX_DUE_ORDERS) -> list[DueOrder]:
         # Luôn dùng giá cao nhất của supply_price (theo sản phẩm) để tính, nhân theo tỷ lệ.
         base_sale_price = supply_max_price if supply_max_price is not None else ol_price
 
-        sale_price = _calc_sale_price(order_code, base_sale_price, pct_ctv, pct_khach)
-        if sale_price <= 0 and ol_price:
-            sale_price = _round_thousand(ol_price)
+        sale_price = calculate_sale_price(
+            order_code,
+            base_sale_price,
+            pct_ctv=pct_ctv,
+            pct_khach=pct_khach,
+            pct_promo=pct_promo,
+            gia_nhap=ol_cost,
+        )
+        if sale_price <= 0 and (ol_price or ol_cost):
+            fallback_price = ol_price if ol_price else ol_cost
+            sale_price = _round_thousand(fallback_price)
 
         due_orders.append(
             DueOrder(

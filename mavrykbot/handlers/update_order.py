@@ -20,16 +20,19 @@ from telegram.ext import (
 from mavrykbot.core.database import db
 from mavrykbot.core.db_schema import (
     ORDER_LIST_TABLE,
-    PRODUCT_PRICE_TABLE,
+    PRICE_CONFIG_TABLE,
     SUPPLY_PRICE_TABLE,
     SUPPLY_TABLE,
     OrderListColumns,
-    ProductPriceColumns,
+    PriceConfigColumns,
     SupplyColumns,
     SupplyPriceColumns,
+    VARIANT_TABLE,
+    VariantColumns,
 )
 from mavrykbot.core.utils import chuan_hoa_gia, escape_mdv2, normalize_product_duration
-from mavrykbot.handlers.add_order import tinh_ngay_het_han
+from mavrykbot.handlers.Order.add_order import tinh_ngay_het_han
+from mavrykbot.handlers.Order.calculate_price import calculate_sale_price
 from mavrykbot.handlers.menu import show_main_selector
 
 logger = logging.getLogger(__name__)
@@ -199,9 +202,15 @@ def _remaining_value(order: OrderRecord) -> Optional[int]:
 
 
 def _round_up_to_thousand(value: int) -> int:
+    """
+    Round to nearest thousand for positive numbers: >=500 up, <500 down.
+    """
     if value <= 0:
         return 0
-    return ((int(value) + 999) // 1000) * 1000
+    number = int(value)
+    remainder = number % 1000
+    base = number - remainder
+    return base + 1000 if remainder >= 500 else base
 
 
 def _build_order(row: Sequence) -> OrderRecord:
@@ -537,11 +546,14 @@ def _lookup_product_profile(
     product_name: str,
 ) -> Optional[Sequence]:
     sql = f"""
-        SELECT {ProductPriceColumns.ID},
-               {ProductPriceColumns.PCT_CTV},
-               {ProductPriceColumns.PCT_KHACH}
-        FROM {PRODUCT_PRICE_TABLE}
-        WHERE LOWER({ProductPriceColumns.SAN_PHAM}) = LOWER(%s)
+        SELECT v.{VariantColumns.ID},
+               pc.{PriceConfigColumns.PCT_CTV},
+               pc.{PriceConfigColumns.PCT_KHACH},
+               pc.{PriceConfigColumns.PCT_PROMO}
+        FROM {VARIANT_TABLE} v
+        LEFT JOIN {PRICE_CONFIG_TABLE} pc
+            ON pc.{PriceConfigColumns.VARIANT_ID} = v.{VariantColumns.ID}
+        WHERE LOWER(v.{VariantColumns.DISPLAY_NAME}) = LOWER(%s)
         LIMIT 1
     """
     return db.fetch_one(sql, (product_name.strip(),))
@@ -601,28 +613,30 @@ async def extend_order(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         return await end_update(update, context)
 
     product_profile = _lookup_product_profile(order.san_pham)
-    gia_nhap_moi = order.gia_nhap
-    gia_ban_moi = order.gia_ban
+    gia_nhap_moi = order.gia_nhap or 0
+    gia_ban_moi = order.gia_ban or 0
 
     if product_profile:
-        product_id, pct_ctv, pct_khach = product_profile
-        pct_ctv = Decimal(str(pct_ctv or 1))
-        pct_khach = Decimal(str(pct_khach or 1))
+        product_id, pct_ctv_raw, pct_khach_raw, pct_promo_raw = product_profile
+        pct_ctv = Decimal(str(pct_ctv_raw or 1))
+        pct_khach = Decimal(str(pct_khach_raw or 1))
+        pct_promo = Decimal(str(pct_promo_raw or 0))
 
         nguon_price = _lookup_source_price(product_id, order.nguon)
         if nguon_price is not None and nguon_price > 0:
             gia_nhap_moi = nguon_price
 
         highest_price = _lookup_highest_price(product_id)
-        if highest_price > 0:
-            high_price = Decimal(highest_price)
-            ma_upper = order.ma_don.upper()
-            if ma_upper.startswith("MAVC"):
-                gia_ban_moi = int(high_price * pct_ctv)
-            elif ma_upper.startswith("MAVL"):
-                gia_ban_moi = int((high_price * pct_ctv) * pct_khach)
-            elif ma_upper.startswith("MAVK"):
-                gia_ban_moi = gia_nhap_moi
+        base_price = Decimal(highest_price) if highest_price > 0 else Decimal(gia_nhap_moi or 0)
+
+        gia_ban_moi = calculate_sale_price(
+            order.ma_don,
+            base_price,
+            pct_ctv=pct_ctv,
+            pct_khach=pct_khach,
+            pct_promo=pct_promo,
+            gia_nhap=gia_nhap_moi,
+        )
 
     gia_nhap_moi = _round_up_to_thousand(gia_nhap_moi)
     gia_ban_moi = _round_up_to_thousand(gia_ban_moi)
