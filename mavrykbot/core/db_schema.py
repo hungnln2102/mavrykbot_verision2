@@ -125,7 +125,7 @@ class VariantColumns:
     PACKAGE_NAME: Final[str] = "package_name"  # join from product if selected
 
 # ----------------------------
-# Partner schema (SCHEMA_PARTNER)
+# Partner schema (supplier lookup) and Product schema (supplier_cost)
 # ----------------------------
 SUPPLIER_TABLE: Final[str] = _table(SCHEMA_PARTNER, "supplier")
 SUPPLY_TABLE: Final[str] = SUPPLIER_TABLE
@@ -137,11 +137,12 @@ class SupplyColumns:
     BIN_BANK: Final[str] = "bin_bank"
     ACTIVE_SUPPLY: Final[str] = "active_supply"
 
-SUPPLIER_COST_TABLE: Final[str] = _table(SCHEMA_PARTNER, "supplier_cost")
+# Cost per supplier stored in product schema (supplier_cost)
+SUPPLIER_COST_TABLE: Final[str] = _table(SCHEMA_PRODUCT, "supplier_cost")
 SUPPLY_PRICE_TABLE: Final[str] = SUPPLIER_COST_TABLE
 class SupplyPriceColumns:
     ID: Final[str] = "id"
-    PRODUCT_ID: Final[str] = "product_id"
+    PRODUCT_ID: Final[str] = "product_id"  # variant.id
     SOURCE_ID: Final[str] = "supplier_id"
     SUPPLIER_ID: Final[str] = SOURCE_ID
     PRICE: Final[str] = "price"
