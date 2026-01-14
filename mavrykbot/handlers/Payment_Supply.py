@@ -23,6 +23,7 @@ from mavrykbot.core.db_schema import (
     PaymentSupplyColumns,
     SupplyColumns,
 )
+from mavrykbot.core.order_status import ORDER_STATUS_PAID, ORDER_STATUS_PROCESSING
 from mavrykbot.core.utils import escape_mdv2
 from mavrykbot.handlers.menu import show_outer_menu
 
@@ -30,8 +31,8 @@ logger = logging.getLogger(__name__)
 
 PAYMENT_PENDING_STATUS = "Chưa Thanh Toán"
 PAYMENT_PAID_STATUS = "Đã Thanh Toán"
-ORDER_PENDING_STATUS = "Chưa Thanh Toán"
-ORDER_PAID_STATUS = "Đã Thanh Toán"
+ORDER_PROCESSING_STATUS = ORDER_STATUS_PROCESSING
+ORDER_PAID_STATUS = ORDER_STATUS_PAID
 USER_DATA_KEY = "payment_supply_entries"
 (
     VIEWING,
@@ -80,11 +81,10 @@ def _fetch_orders_for_source(source_name: str) -> Tuple[List[int], int]:
         SELECT {OrderListColumns.ID}, COALESCE({OrderListColumns.GIA_NHAP}, 0)
         FROM {ORDER_LIST_TABLE}
         WHERE LOWER(REGEXP_REPLACE(TRIM({OrderListColumns.NGUON}), '^@', '')) = %s
-          AND ({OrderListColumns.CHECK_FLAG} IS NULL OR {OrderListColumns.CHECK_FLAG} = FALSE)
           AND LOWER(COALESCE({OrderListColumns.TINH_TRANG}, '')) = %s
         ORDER BY {OrderListColumns.ID} ASC
     """
-    rows = db.fetch_all(sql, (normalized, ORDER_PENDING_STATUS.lower()))
+    rows = db.fetch_all(sql, (normalized, ORDER_PROCESSING_STATUS.lower()))
     order_ids: List[int] = []
     total = 0
     for row_id, gia_nhap in rows:
@@ -357,8 +357,9 @@ def _mark_orders_paid(order_ids: List[int]) -> None:
         SET {OrderListColumns.CHECK_FLAG} = TRUE,
             {OrderListColumns.TINH_TRANG} = %s
         WHERE {OrderListColumns.ID} IN ({placeholders})
+          AND LOWER(COALESCE({OrderListColumns.TINH_TRANG}, '')) = %s
     """
-    params = [ORDER_PAID_STATUS, *order_ids]
+    params = [ORDER_PAID_STATUS, *order_ids, ORDER_PROCESSING_STATUS.lower()]
     db.execute(sql, params)
 
 

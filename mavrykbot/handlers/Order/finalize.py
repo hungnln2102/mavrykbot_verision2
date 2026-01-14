@@ -9,6 +9,7 @@ from telegram.error import BadRequest
 from mavrykbot.core.utils import escape_mdv2
 from mavrykbot.core.database import db
 from mavrykbot.core.db_schema import ORDER_LIST_TABLE, OrderListColumns
+from mavrykbot.core.order_status import ORDER_STATUS_UNPAID
 from mavrykbot.handlers.menu import show_main_selector
 
 from .utils import safe_edit_md, safe_send_md, md, tinh_ngay_het_han
@@ -82,7 +83,7 @@ async def hoan_tat_don(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
                 info.get("gia_nhap_value", 0),
                 gia_ban_value,
                 info.get("note", ""),
-                "Chưa Thanh Toán",
+                ORDER_STATUS_UNPAID,
                 None,
             )
 

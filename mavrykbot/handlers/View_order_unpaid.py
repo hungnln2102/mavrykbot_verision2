@@ -18,6 +18,7 @@ from telegram.ext import (
 
 from mavrykbot.core.database import db
 from mavrykbot.core.db_schema import ORDER_LIST_TABLE, OrderListColumns
+from mavrykbot.core.order_status import ORDER_STATUS_PROCESSING, ORDER_STATUS_UNPAID
 from mavrykbot.core.utils import escape_mdv2
 from mavrykbot.handlers.menu import show_outer_menu
 
@@ -29,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 UNPAID_CACHE_KEY = "unpaid_orders"
 UNPAID_INDEX_KEY = "unpaid_index"
-TARGET_STATUS = "Chưa Thanh Toán"
+TARGET_STATUS = ORDER_STATUS_UNPAID
 MAX_UNPAID_RESULTS = 100
 
 
@@ -329,7 +330,7 @@ def _mark_order_paid_in_db(order: UnpaidOrder) -> None:
             {OrderListColumns.TINH_TRANG} = %s
         WHERE {OrderListColumns.ID} = %s
     """
-    db.execute(sql, ("Đã Thanh Toán", order.db_id))
+    db.execute(sql, (ORDER_STATUS_PROCESSING, order.db_id))
 
 
 async def handle_action_and_update_view(
