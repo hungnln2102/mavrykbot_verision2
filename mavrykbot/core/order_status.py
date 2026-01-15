@@ -3,3 +3,5 @@
 ORDER_STATUS_UNPAID = "Ch\u01b0a Thanh To\u00e1n"
 ORDER_STATUS_PROCESSING = "\u0110ang X\u1eed L\u00fd"
 ORDER_STATUS_PAID = "\u0110\u00e3 Thanh To\u00e1n"
+ORDER_STATUS_DUE = "C\u1ea7n Gia H\u1ea1n"
+ORDER_STATUS_EXPIRED = "H\u1ebft H\u1ea1n"

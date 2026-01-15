@@ -354,8 +354,7 @@ def _mark_orders_paid(order_ids: List[int]) -> None:
     placeholders = ",".join(["%s"] * len(order_ids))
     sql = f"""
         UPDATE {ORDER_LIST_TABLE}
-        SET {OrderListColumns.CHECK_FLAG} = TRUE,
-            {OrderListColumns.TINH_TRANG} = %s
+        SET {OrderListColumns.TINH_TRANG} = %s
         WHERE {OrderListColumns.ID} IN ({placeholders})
           AND LOWER(COALESCE({OrderListColumns.TINH_TRANG}, '')) = %s
     """

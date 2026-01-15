@@ -132,9 +132,7 @@ def fetch_unpaid_orders(limit: int = MAX_UNPAID_RESULTS) -> OrderedDict[str, Unp
             {OrderListColumns.GIA_BAN},
             {OrderListColumns.NOTE}
         FROM {ORDER_LIST_TABLE}
-        WHERE
-            COALESCE(TRIM({OrderListColumns.CHECK_FLAG}::text), '') = ''
-            AND LOWER({OrderListColumns.TINH_TRANG}) = LOWER(%s)
+        WHERE LOWER({OrderListColumns.TINH_TRANG}) = LOWER(%s)
         ORDER BY {OrderListColumns.NGAY_DANG_KI} DESC, {OrderListColumns.ID} DESC
         LIMIT %s
     """
@@ -325,9 +323,7 @@ def _delete_order_from_db(order: UnpaidOrder) -> None:
 def _mark_order_paid_in_db(order: UnpaidOrder) -> None:
     sql = f"""
         UPDATE {ORDER_LIST_TABLE}
-        SET
-            {OrderListColumns.CHECK_FLAG} = 'True',
-            {OrderListColumns.TINH_TRANG} = %s
+        SET {OrderListColumns.TINH_TRANG} = %s
         WHERE {OrderListColumns.ID} = %s
     """
     db.execute(sql, (ORDER_STATUS_PROCESSING, order.db_id))

@@ -62,10 +62,9 @@ async def hoan_tat_don(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
                     {OrderListColumns.NGAY_DANG_KI}, {OrderListColumns.SO_NGAY_DA_DANG_KI},
                     {OrderListColumns.HET_HAN}, {OrderListColumns.NGUON},
                     {OrderListColumns.GIA_NHAP}, {OrderListColumns.GIA_BAN},
-                    {OrderListColumns.NOTE}, {OrderListColumns.TINH_TRANG},
-                    {OrderListColumns.CHECK_FLAG}
+                    {OrderListColumns.NOTE}, {OrderListColumns.TINH_TRANG}
                 ) VALUES (
-                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
                 )
             """
 
@@ -84,7 +83,6 @@ async def hoan_tat_don(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
                 gia_ban_value,
                 info.get("note", ""),
                 ORDER_STATUS_UNPAID,
-                None,
             )
 
             db.execute(sql_query, params)

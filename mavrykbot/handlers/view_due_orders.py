@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from io import BytesIO
 from typing import Optional
@@ -26,6 +26,11 @@ from mavrykbot.core.db_schema import (
     SupplyPriceColumns,
     VariantColumns,
 )
+from mavrykbot.core.order_status import (
+    ORDER_STATUS_DUE,
+    ORDER_STATUS_EXPIRED,
+    ORDER_STATUS_PAID,
+)
 from mavrykbot.core.config import load_topic_config
 from mavrykbot.core.utils import escape_mdv2
 from mavrykbot.handlers.Order.calculate_price import calculate_sale_price
@@ -41,7 +46,7 @@ ERROR_TOPIC_ID = TOPIC_CONFIG.error_topic_id
 
 logger = logging.getLogger(__name__)
 
-TARGET_STATUS = "Cần Gia Hạn"
+TARGET_STATUS = ORDER_STATUS_DUE
 TARGET_DAYS_LEFT = 4
 MAX_DUE_ORDERS = 20
 QR_TEMPLATE = (
@@ -96,12 +101,58 @@ def _round_thousand(value: int | Decimal) -> int:
     return base + 1000 if remainder >= 500 else base
 
 
+def _refresh_due_statuses() -> None:
+    """Sync paid order statuses based on remaining days."""
+    today = date.today()
+    cutoff = today + timedelta(days=TARGET_DAYS_LEFT)
+    status_expr = f"LOWER(TRIM(COALESCE({OrderListColumns.TINH_TRANG}, '')))"
+    eligible_statuses = (
+        ORDER_STATUS_PAID.lower(),
+        ORDER_STATUS_DUE.lower(),
+        ORDER_STATUS_EXPIRED.lower(),
+    )
+    eligible_placeholders = ", ".join(["%s"] * len(eligible_statuses))
+
+    sql_expired = f"""
+        UPDATE {ORDER_LIST_TABLE}
+        SET {OrderListColumns.TINH_TRANG} = %s
+        WHERE {OrderListColumns.HET_HAN} IS NOT NULL
+          AND {OrderListColumns.HET_HAN}::date <= %s
+          AND {status_expr} IN ({eligible_placeholders})
+    """
+    db.execute(sql_expired, (ORDER_STATUS_EXPIRED, today, *eligible_statuses))
+
+    sql_due = f"""
+        UPDATE {ORDER_LIST_TABLE}
+        SET {OrderListColumns.TINH_TRANG} = %s
+        WHERE {OrderListColumns.HET_HAN} IS NOT NULL
+          AND {OrderListColumns.HET_HAN}::date > %s
+          AND {OrderListColumns.HET_HAN}::date <= %s
+          AND {status_expr} IN ({eligible_placeholders})
+    """
+    db.execute(sql_due, (ORDER_STATUS_DUE, today, cutoff, *eligible_statuses))
+
+    sql_reset = f"""
+        UPDATE {ORDER_LIST_TABLE}
+        SET {OrderListColumns.TINH_TRANG} = %s
+        WHERE {OrderListColumns.HET_HAN} IS NOT NULL
+          AND {OrderListColumns.HET_HAN}::date > %s
+          AND {status_expr} IN (%s, %s)
+    """
+    db.execute(
+        sql_reset,
+        (ORDER_STATUS_PAID, cutoff, ORDER_STATUS_DUE.lower(), ORDER_STATUS_EXPIRED.lower()),
+    )
+
+
 def fetch_due_orders(limit: int = MAX_DUE_ORDERS) -> list[DueOrder]:
     """
     Query PostgreSQL to find orders that need extension.
     Requirement: order_list.status indicates "Cần Gia Hạn"
     and remaining days equal TARGET_DAYS_LEFT.
     """
+
+    _refresh_due_statuses()
 
     sql = f"""
         SELECT

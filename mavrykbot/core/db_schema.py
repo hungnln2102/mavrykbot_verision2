@@ -56,7 +56,6 @@ class OrderListColumns:
     GIA_BAN: Final[str] = "price"
     NOTE: Final[str] = "note"
     TINH_TRANG: Final[str] = "status"
-    CHECK_FLAG: Final[str] = "check_flag"
 
 
 PAYMENT_RECEIPT_TABLE: Final[str] = _table(SCHEMA_ORDERS, "payment_receipt")
@@ -176,7 +175,6 @@ COLUMNS: Final[Mapping[str, Mapping[str, str]]] = {
         "GIA_BAN": OrderListColumns.GIA_BAN,
         "NOTE": OrderListColumns.NOTE,
         "TINH_TRANG": OrderListColumns.TINH_TRANG,
-        "CHECK_FLAG": OrderListColumns.CHECK_FLAG,
     },
     "payment_receipt": {
         "ID": PaymentReceiptColumns.ID,
