@@ -120,22 +120,27 @@ async def hoan_tat_don(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
             return await end_add(update, context, success=False)
 
         ma_don_final = info.get('ma_don','')
+        
+        # Format giá bán với dấu chấm phân cách
+        gia_ban_formatted = f"{gia_ban_value:,} đ".replace(',', '.')
+        
+        # Tạo caption với format đẹp, không dùng MarkdownV2
         caption = (
-            f"✅ Đơn hàng `{escape_mdv2(ma_don_final)}` đã được tạo thành công\\\\!\\n\\n"
-            f"📦 *THÔNG TIN SẢN PHẨM*\\n"
-            f"🔹 *Tên Sản Phẩm:* {escape_mdv2(info.get('ma_chon', ''))}\\n"
-            f"📝 *Thông Tin Đơn Hàng:* `{escape_mdv2(info.get('thong_tin_don', ''))}`\\n"
-            f"📆 *Ngày Bắt đầu:* {escape_mdv2(ngay_bat_dau_str)}\\n"
-            f"⏳ *Thời hạn:* {escape_mdv2(str(so_ngay))} ngày\\n"
-            f"📅 *Ngày Hết hạn:* {escape_mdv2(ngay_het_han_dt.strftime('%d/%m/%Y') if ngay_het_han_dt else 'N/A')}\\n"
-            f"💵 *Giá bán:* {escape_mdv2(f'{gia_ban_value:,} đ'.replace(',', '.'))}\\n\\n" 
-            f" *━━━━━━ 👤 ━━━━━━*\\n"
-            f"👤 *THÔNG TIN KHÁCH HÀNG*\\n"
-            f"🔸 *Tên Khách Hàng:* {escape_mdv2(info.get('khach_hang', ''))}\\n\\n"
-            f" *━━━━━━ 💳 ━━━━━━*\\n"
-            f"📢 *HƯỚNG DẪN THANH TOÁN*\\n"
-            f"📢 *STK:* 9183400998\\n"
-            f"📢 *Nội dung:* Thanh toán `{escape_mdv2(ma_don_final)}`"
+            f"✅ Đơn hàng {ma_don_final} đã được tạo thành công!\n\n"
+            f"📦 THÔNG TIN SẢN PHẨM\n"
+            f"🔹 Tên Sản Phẩm: {info.get('ma_chon', '')}\n"
+            f"📝 Thông Tin Đơn Hàng: {info.get('thong_tin_don', '')}\n"
+            f"📆 Ngày Bắt đầu: {ngay_bat_dau_str}\n"
+            f"⏳ Thời hạn: {so_ngay} ngày\n"
+            f"📅 Ngày Hết hạn: {ngay_het_han_dt.strftime('%d/%m/%Y') if ngay_het_han_dt else 'N/A'}\n"
+            f"💵 Giá bán: {gia_ban_formatted}\n\n"
+            f"━━━━━━━━━━━━━━━\n\n"
+            f"👤 THÔNG TIN KHÁCH HÀNG\n"
+            f"🔸 Tên Khách Hàng: {info.get('khach_hang', '')}\n\n"
+            f"━━━━━━━━━━━━━━━\n\n"
+            f"📢 HƯỚNG DẪN THANH TOÁN\n"
+            f"📢 STK: 9183400998\n"
+            f"📢 Nội dung: Thanh toán {ma_don_final}"
         )
 
         qr_url = (
@@ -148,10 +153,9 @@ async def hoan_tat_don(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
             await context.bot.delete_message(chat_id=chat_id, message_id=main_message_id)
         except Exception:
             pass
-        try:
-            await context.bot.send_photo(chat_id=chat_id, photo=qr_url, caption=caption, parse_mode="MarkdownV2")
-        except BadRequest:
-            await context.bot.send_photo(chat_id=chat_id, photo=qr_url, caption=caption)
+        
+        # Send photo with plain text caption (no markdown)
+        await context.bot.send_photo(chat_id=chat_id, photo=qr_url, caption=caption)
 
         await show_main_selector(update, context, edit=False)
 
