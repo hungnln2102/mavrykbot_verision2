@@ -10,6 +10,7 @@ from mavrykbot.core.utils import escape_mdv2
 from mavrykbot.core.database import db
 from mavrykbot.core.db_schema import ORDER_LIST_TABLE, OrderListColumns
 from mavrykbot.core.order_status import ORDER_STATUS_UNPAID
+from mavrykbot.core.id_service import get_next_id
 from mavrykbot.handlers.menu import show_main_selector
 
 from .utils import safe_edit_md, safe_send_md, md, tinh_ngay_het_han
@@ -54,9 +55,12 @@ async def hoan_tat_don(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
 
         # Ghi vao PostgreSQL
         try:
+            # Get next ID from database to ensure consistency with web backend
+            next_id = get_next_id(ORDER_LIST_TABLE, OrderListColumns.ID)
+            
             sql_query = f"""
                 INSERT INTO {ORDER_LIST_TABLE} (
-                    {OrderListColumns.ID_DON_HANG}, {OrderListColumns.SAN_PHAM},
+                    {OrderListColumns.ID}, {OrderListColumns.ID_DON_HANG}, {OrderListColumns.SAN_PHAM},
                     {OrderListColumns.THONG_TIN_SAN_PHAM}, {OrderListColumns.KHACH_HANG},
                     {OrderListColumns.LINK_LIEN_HE}, {OrderListColumns.SLOT},
                     {OrderListColumns.NGAY_DANG_KI}, {OrderListColumns.SO_NGAY_DA_DANG_KI},
@@ -64,11 +68,28 @@ async def hoan_tat_don(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
                     {OrderListColumns.GIA_NHAP}, {OrderListColumns.GIA_BAN},
                     {OrderListColumns.NOTE}, {OrderListColumns.TINH_TRANG}
                 ) VALUES (
-                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
                 )
+                ON CONFLICT ({OrderListColumns.ID}) 
+                DO UPDATE SET
+                    {OrderListColumns.ID_DON_HANG} = EXCLUDED.{OrderListColumns.ID_DON_HANG},
+                    {OrderListColumns.SAN_PHAM} = EXCLUDED.{OrderListColumns.SAN_PHAM},
+                    {OrderListColumns.THONG_TIN_SAN_PHAM} = EXCLUDED.{OrderListColumns.THONG_TIN_SAN_PHAM},
+                    {OrderListColumns.KHACH_HANG} = EXCLUDED.{OrderListColumns.KHACH_HANG},
+                    {OrderListColumns.LINK_LIEN_HE} = EXCLUDED.{OrderListColumns.LINK_LIEN_HE},
+                    {OrderListColumns.SLOT} = EXCLUDED.{OrderListColumns.SLOT},
+                    {OrderListColumns.NGAY_DANG_KI} = EXCLUDED.{OrderListColumns.NGAY_DANG_KI},
+                    {OrderListColumns.SO_NGAY_DA_DANG_KI} = EXCLUDED.{OrderListColumns.SO_NGAY_DA_DANG_KI},
+                    {OrderListColumns.HET_HAN} = EXCLUDED.{OrderListColumns.HET_HAN},
+                    {OrderListColumns.NGUON} = EXCLUDED.{OrderListColumns.NGUON},
+                    {OrderListColumns.GIA_NHAP} = EXCLUDED.{OrderListColumns.GIA_NHAP},
+                    {OrderListColumns.GIA_BAN} = EXCLUDED.{OrderListColumns.GIA_BAN},
+                    {OrderListColumns.NOTE} = EXCLUDED.{OrderListColumns.NOTE},
+                    {OrderListColumns.TINH_TRANG} = EXCLUDED.{OrderListColumns.TINH_TRANG}
             """
 
             params = (
+                next_id,
                 info.get("ma_don", ""),
                 info.get("ma_chon", info.get("ten_san_pham_raw", "")),
                 info.get("thong_tin_don", ""),
@@ -86,7 +107,7 @@ async def hoan_tat_don(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
             )
 
             db.execute(sql_query, params)
-            logger.info("Inserted order %s into order_list", params[0])
+            logger.info("Inserted/Updated order ID=%s, order_code=%s into order_list", next_id, params[1])
 
         except Exception as e:
             logger.error(f"Loi khi ghi don hang vao PostgreSQL: {e}", exc_info=True)
@@ -100,20 +121,20 @@ async def hoan_tat_don(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
 
         ma_don_final = info.get('ma_don','')
         caption = (
-            f"✅ Đơn hàng `{escape_mdv2(ma_don_final)}` đã được tạo thành công\\!\n\n"
-            f"📦 *THÔNG TIN SẢN PHẨM*\n"
-            f"🔹 *Tên Sản Phẩm:* {escape_mdv2(info.get('ma_chon', ''))}\n"
-            f"📝 *Thông Tin Đơn Hàng:* `{escape_mdv2(info.get('thong_tin_don', ''))}`\n"
-            f"📆 *Ngày Bắt đầu:* {escape_mdv2(ngay_bat_dau_str)}\n"
-            f"⏳ *Thời hạn:* {escape_mdv2(str(so_ngay))} ngày\n"
-            f"📅 *Ngày Hết hạn:* {escape_mdv2(ngay_het_han_dt.strftime('%d/%m/%Y') if ngay_het_han_dt else 'N/A')}\n"
-            f"💵 *Giá bán:* {escape_mdv2(f'{gia_ban_value:,} đ'.replace(',', '.'))}\n\n" 
-            f" *━━━━━━ 👤 ━━━━━━*\n"
-            f"👤 *THÔNG TIN KHÁCH HÀNG*\n"
-            f"🔸 *Tên Khách Hàng:* {escape_mdv2(info.get('khach_hang', ''))}\n\n"
-            f" *━━━━━━ 💳 ━━━━━━*\n"
-            f"📢 *HƯỚNG DẪN THANH TOÁN*\n"
-            f"📢 *STK:* 9183400998\n"
+            f"✅ Đơn hàng `{escape_mdv2(ma_don_final)}` đã được tạo thành công\\\\!\\n\\n"
+            f"📦 *THÔNG TIN SẢN PHẨM*\\n"
+            f"🔹 *Tên Sản Phẩm:* {escape_mdv2(info.get('ma_chon', ''))}\\n"
+            f"📝 *Thông Tin Đơn Hàng:* `{escape_mdv2(info.get('thong_tin_don', ''))}`\\n"
+            f"📆 *Ngày Bắt đầu:* {escape_mdv2(ngay_bat_dau_str)}\\n"
+            f"⏳ *Thời hạn:* {escape_mdv2(str(so_ngay))} ngày\\n"
+            f"📅 *Ngày Hết hạn:* {escape_mdv2(ngay_het_han_dt.strftime('%d/%m/%Y') if ngay_het_han_dt else 'N/A')}\\n"
+            f"💵 *Giá bán:* {escape_mdv2(f'{gia_ban_value:,} đ'.replace(',', '.'))}\\n\\n" 
+            f" *━━━━━━ 👤 ━━━━━━*\\n"
+            f"👤 *THÔNG TIN KHÁCH HÀNG*\\n"
+            f"🔸 *Tên Khách Hàng:* {escape_mdv2(info.get('khach_hang', ''))}\\n\\n"
+            f" *━━━━━━ 💳 ━━━━━━*\\n"
+            f"📢 *HƯỚNG DẪN THANH TOÁN*\\n"
+            f"📢 *STK:* 9183400998\\n"
             f"📢 *Nội dung:* Thanh toán `{escape_mdv2(ma_don_final)}`"
         )
 
