@@ -1,46 +1,17 @@
 import logging
 import re
 from datetime import datetime
-from decimal import Decimal
 from dateutil.relativedelta import relativedelta
 from telegram.error import BadRequest
 
-from mavrykbot.core.utils import escape_mdv2
+from mavrykbot.core.utils import escape_mdv2, round_thousand, parse_price
 
 logger = logging.getLogger(__name__)
 
 
-def _round_thousand(value) -> int:
-    """Round to nearest thousand: >=500 goes up, <500 goes down (non-positive -> 0)."""
-    try:
-        number = int(Decimal(value))
-    except Exception:
-        return 0
-    if number <= 0:
-        return 0
-    remainder = number % 1000
-    base = number - remainder
-    return base + 1000 if remainder >= 500 else base
-
-
-def _parse_price(s: str) -> int:
-    try:
-        s = str(s).strip().replace("đ", "").replace("₫", "").replace(" ", "")
-        if not s: return -1
-        s = s.replace(",", ".")
-        if "." not in s:
-            value = int(s) * 1000
-            return _round_thousand(value)
-        parts = s.split('.')
-        integer_part = "".join(parts[:-1])
-        decimal_part = parts[-1]
-        if not integer_part: integer_part = "0"
-        reformatted_string = f"{integer_part}.{decimal_part}"
-        base_value = float(reformatted_string)
-        value = int(base_value * 1000)
-        return _round_thousand(value)
-    except (ValueError, IndexError):
-        return -1
+# Re-export for backward compatibility
+_round_thousand = round_thousand
+_parse_price = parse_price
 
 
 def extract_days_from_ma_sp(ma_sp: str) -> int:

@@ -3,8 +3,7 @@ from __future__ import annotations
 import logging
 from collections import OrderedDict
 from dataclasses import dataclass
-from datetime import date, datetime
-from decimal import Decimal
+from datetime import date
 from typing import Optional
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
@@ -19,7 +18,7 @@ from telegram.ext import (
 from mavrykbot.core.database import db
 from mavrykbot.core.db_schema import ORDER_LIST_TABLE, OrderListColumns
 from mavrykbot.core.order_status import ORDER_STATUS_PROCESSING, ORDER_STATUS_UNPAID
-from mavrykbot.core.utils import escape_mdv2
+from mavrykbot.core.utils import escape_mdv2, parse_date, coerce_int, format_date_vn
 from mavrykbot.handlers.menu import show_outer_menu
 
 logger = logging.getLogger(__name__)
@@ -51,44 +50,10 @@ class UnpaidOrder:
     days_left: int
 
 
-def _coerce_date(value) -> Optional[date]:
-    if value is None:
-        return None
-    if isinstance(value, date):
-        return value
-    if isinstance(value, datetime):
-        return value.date()
-    value_str = str(value).strip()
-    if not value_str:
-        return None
-    for fmt in ("%Y-%m-%d", "%d/%m/%Y"):
-        try:
-            return datetime.strptime(value_str, fmt).date()
-        except ValueError:
-            continue
-    return None
-
-
-def _coerce_int(value) -> Optional[int]:
-    if value is None:
-        return None
-    if isinstance(value, bool):
-        return int(value)
-    if isinstance(value, (int,)):
-        return int(value)
-    if isinstance(value, Decimal):
-        return int(value)
-    try:
-        text = str(value).replace(",", "").strip()
-        if not text:
-            return None
-        return int(float(text))
-    except (TypeError, ValueError):
-        return None
-
-
-def _format_date(value: Optional[date]) -> str:
-    return value.strftime("%d/%m/%Y") if value else ""
+# Use consolidated utilities from core/utils.py
+_coerce_date = parse_date
+_coerce_int = coerce_int
+_format_date = format_date_vn
 
 
 def _format_currency(amount: Optional[int]) -> str:

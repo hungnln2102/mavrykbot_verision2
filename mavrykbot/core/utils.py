@@ -4,11 +4,13 @@ from __future__ import annotations
 import re
 import secrets
 import string
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime
+from decimal import Decimal
+from typing import Optional
 
 logger_name = __name__
 
-VN_TZ = timezone(timedelta(hours=7))
+DATE_FMT = "%d/%m/%Y"
 
 
 def escape_mdv2(text: str) -> str:
@@ -18,24 +20,11 @@ def escape_mdv2(text: str) -> str:
     return re.sub(r"([_\*\[\]\(\)~`>\#\+\-\=\|\{\}\.!])", r"\\\1", text)
 
 
-def compute_dates(so_ngay: int, start_date: datetime | None = None):
-    tz_today = datetime.now(VN_TZ).replace(hour=0, minute=0, second=0, microsecond=0)
-    start = start_date or tz_today
-    end = start + timedelta(days=int(so_ngay))
-    con_lai = (end - tz_today).days
-    fmt = lambda d: d.strftime("%d/%m/%Y")
-    return fmt(start), fmt(end), max(con_lai, 0)
-
-
 def to_int(value, default=0):
     if value is None:
         return default
     digits = re.sub(r"[^\d]", "", str(value))
     return int(digits) if digits else default
-
-
-def format_date_dmy(date_obj: datetime):
-    return date_obj.strftime("%d/%m/%Y")
 
 
 def normalize_product_duration(text: str) -> str:
@@ -79,4 +68,100 @@ def generate_unique_id(prefix: str | None = None) -> str:
     random_part = ''.join(secrets.choice(alphabet) for _ in range(7))
     
     return f"{final_prefix}{random_part}"
+
+
+# =============================================================================
+# Consolidated utility functions (moved from handlers)
+# =============================================================================
+
+def round_thousand(value) -> int:
+    """Round to nearest thousand: >=500 goes up, <500 goes down (non-positive -> 0)."""
+    try:
+        number = int(Decimal(value))
+    except Exception:
+        return 0
+    if number <= 0:
+        return 0
+    remainder = number % 1000
+    base = number - remainder
+    return base + 1000 if remainder >= 500 else base
+
+
+def parse_date(value) -> Optional[date]:
+    """Parse date from various formats (YYYY-MM-DD, DD/MM/YYYY) or date/datetime objects."""
+    if value is None or value == "":
+        return None
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    value_str = str(value).strip()
+    if not value_str:
+        return None
+    for fmt in ("%Y-%m-%d", DATE_FMT):
+        try:
+            return datetime.strptime(value_str, fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+def coerce_int(value) -> Optional[int]:
+    """Coerce value to int, handling Decimal, string with commas, etc."""
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, int):
+        return value
+    if isinstance(value, Decimal):
+        return int(value)
+    try:
+        text = str(value).replace(",", "").strip()
+        if not text:
+            return None
+        return int(float(text))
+    except (TypeError, ValueError):
+        return None
+
+
+def parse_price(s: str) -> int:
+    """Parse price string (e.g., '150k', '150.000', '150000') to int. Returns -1 on error."""
+    try:
+        s = str(s).strip().replace("đ", "").replace("₫", "").replace(" ", "")
+        if not s:
+            return -1
+        s = s.replace(",", ".")
+        if "." not in s:
+            value = int(s) * 1000
+            return round_thousand(value)
+        parts = s.split('.')
+        integer_part = "".join(parts[:-1])
+        decimal_part = parts[-1]
+        if not integer_part:
+            integer_part = "0"
+        reformatted_string = f"{integer_part}.{decimal_part}"
+        base_value = float(reformatted_string)
+        value = int(base_value * 1000)
+        return round_thousand(value)
+    except (ValueError, IndexError):
+        return -1
+
+
+def format_date_vn(value: Optional[date]) -> str:
+    """Format date as DD/MM/YYYY Vietnamese format."""
+    return value.strftime(DATE_FMT) if value else ""
+
+
+def format_currency_vn(value: Optional[int]) -> str:
+    """Format currency with Vietnamese style (dots as thousand separator)."""
+    amount = int(value or 0)
+    return "{:,}".format(amount).replace(",", ".")
+
+
+def md(text: str) -> str:
+    """Shorthand for escape_mdv2 with ellipsis normalization."""
+    if text is None:
+        return ""
+    return escape_mdv2(str(text).replace("...", "…"))
 

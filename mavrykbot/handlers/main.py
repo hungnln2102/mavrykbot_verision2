@@ -19,9 +19,7 @@ ensure_project_root()
 
 import logging
 import os
-from datetime import time
 from typing import Awaitable, Callable, Optional
-from zoneinfo import ZoneInfo
 
 from telegram import Update
 from telegram.ext import (
@@ -34,12 +32,11 @@ from telegram.ext import (
 from telegram.error import Conflict
 
 from mavrykbot.core.config import load_bot_config
-from mavrykbot.handlers.Payment_Supply import get_payment_supply_conversation_handler
-from mavrykbot.handlers.View_order_unpaid import get_unpaid_order_conversation_handler
+from mavrykbot.handlers.payment_supply import get_payment_supply_conversation_handler
+from mavrykbot.handlers.view_order_unpaid import get_unpaid_order_conversation_handler
 from mavrykbot.handlers.Order.add_order import get_add_order_conversation_handler
 from mavrykbot.handlers.menu import show_main_selector, show_outer_menu
-from mavrykbot.handlers.update_order import get_update_order_conversation_handler
-from mavrykbot.handlers.view_due_orders import check_due_orders_job, test_due_orders_command
+from mavrykbot.handlers.UpdateOrder import get_update_order_conversation_handler
 from mavrykbot.notifications.error_notifier import notify_error
 
 try:
@@ -174,18 +171,6 @@ def build_application() -> Application:
     application.add_handler(qr_conversation)
 
     application.add_handler(CallbackQueryHandler(button_callback))
-    application.add_handler(CommandHandler("testjob", test_due_orders_command))
     application.add_error_handler(application_error_handler)
 
-    # Daily notification for due orders at 07:00 Asia/Ho_Chi_Minh
-    if application.job_queue:
-        application.job_queue.run_daily(
-            check_due_orders_job,
-            time=time(hour=7, minute=0, tzinfo=ZoneInfo("Asia/Ho_Chi_Minh")),
-            name="daily_due_orders",
-        )
-    else:  # pragma: no cover - defensive guard when job-queue extra not installed
-        logger.warning(
-            "JobQueue is not available. Install python-telegram-bot[job-queue] to enable the 7:00 due-order job."
-        )
     return application
