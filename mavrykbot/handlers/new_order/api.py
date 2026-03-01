@@ -21,27 +21,32 @@ LOCALHOST_NAMES = ("127.0.0.1", "localhost", "::1")
 
 
 def _normalize_base_url(base: str) -> str:
-    """Ép http cho host local để tránh SSL lỗi."""
+    """Ép http cho host local để tránh SSL lỗi (kể cả khi env ghi https)."""
     base = (base or "").strip().rstrip("/")
     if not base:
         return base
     try:
         p = urlparse(base)
         host = (p.hostname or "").lower()
-        if host in LOCALHOST_NAMES and p.scheme.lower() == "https":
+        # Luôn dùng http cho localhost (tránh WRONG_VERSION_NUMBER khi server chỉ lắng HTTP)
+        if host in LOCALHOST_NAMES and p.scheme.lower() != "http":
             base = urlunparse(("http", p.netloc, p.path or "", p.params, p.query, p.fragment))
-            logger.info("NOTIFY_ORDER_BASE_URL: localhost dùng http thay vì https")
+            logger.info("NOTIFY_ORDER_BASE_URL: localhost ép dùng http")
     except Exception:
         pass
     return base
 
 
 def _request_kw(base: str) -> dict:
-    """verify=False cho localhost; còn lại dùng REQUEST_VERIFY."""
+    """verify=False cho localhost; allow_redirects=False cho localhost để không follow redirect lên HTTPS (tránh SSL)."""
     try:
         p = urlparse(base)
         if (p.hostname or "").lower() in LOCALHOST_NAMES:
-            return {"verify": False, "timeout": REQUEST_TIMEOUT, "allow_redirects": True}
+            return {
+                "verify": False,
+                "timeout": REQUEST_TIMEOUT,
+                "allow_redirects": False,  # tránh follow 301/302 → https gây SSLError
+            }
     except Exception:
         pass
     return {"verify": REQUEST_VERIFY, "timeout": REQUEST_TIMEOUT, "allow_redirects": True}
