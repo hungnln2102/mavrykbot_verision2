@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import sys
 from typing import Tuple
 from urllib.parse import urlparse, urlunparse
 
@@ -112,12 +113,15 @@ def get_notify_order_config() -> Tuple[str, str]:
                 load_dotenv(env_path)
                 key = (os.getenv("NOTIFY_ORDER_API_KEY") or "").strip()
             if not key:
-                logger.warning(
-                    "NOTIFY_ORDER_API_KEY trống. Kiểm tra file .env tại: %s (phải có dòng NOTIFY_ORDER_API_KEY=...)",
-                    env_path.resolve(),
+                msg = (
+                    f"NOTIFY_ORDER_API_KEY trống. Kiểm tra file .env tại: {env_path.resolve()} "
+                    "(phải có dòng NOTIFY_ORDER_API_KEY=...)"
                 )
+                logger.warning("%s", msg)
+                print(f"[MAVRYKBOT ERROR] {msg}", file=sys.stderr, flush=True)
         except Exception as e:
             logger.warning("Không load lại .env được: %s", e)
+            print(f"[MAVRYKBOT ERROR] load_dotenv: {e}", file=sys.stderr, flush=True)
     base = _normalize_base_url(base)
     # Trên production server: nếu base đang là localhost mà có NOTIFY_ORDER_BASE_URL_PRODUCTION thì dùng production URL
     try:
@@ -177,6 +181,7 @@ def get_suppliers() -> Tuple[bool, list, str]:
             f"{env_path} (dòng: NOTIFY_ORDER_API_KEY=giá_trị_cùng_server_Website)"
         )
         logger.error("get_suppliers: %s", err)
+        print(f"[MAVRYKBOT ERROR] get_suppliers: {err}", file=sys.stderr, flush=True)
         return False, [], err
     base = _ensure_single_base(base)
     base_clean = base.rstrip("/")

@@ -2,16 +2,26 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
 from telegram.error import Conflict
+
+# Đường dẫn .env cố định theo vị trí run_bot.py (trùng với PM2 exec cwd)
+_ENV_FILE = Path(__file__).resolve().parent / ".env"
 
 from mavrykbot.bootstrap import ensure_env_loaded, ensure_project_root, log_env_status
 from mavrykbot.core.runtime import bot_instance_lock
 
 # Load .env trước khi import main (để NOTIFY_ORDER_* có sẵn khi handler chạy)
 ensure_project_root()
-ensure_env_loaded()
-log_env_status()  # Log đường dẫn .env và trạng thái biến (để kiểm tra bot dùng env ở đâu)
+ensure_env_loaded(str(_ENV_FILE))
+log_env_status(str(_ENV_FILE))
+
+import os as _os
+import sys as _sys
+if not (_os.getenv("TELEGRAM_BOT_TOKEN") or "").strip():
+    print(f"[MAVRYKBOT FATAL] Không đọc được TELEGRAM_BOT_TOKEN. File .env: {_ENV_FILE} (exists={_ENV_FILE.exists()})", file=_sys.stderr, flush=True)
+    _sys.exit(1)
 
 from mavrykbot.handlers.main import build_application
 
@@ -35,7 +45,7 @@ def _run_polling() -> None:
 
 def main() -> None:
     ensure_project_root()
-    ensure_env_loaded()
+    ensure_env_loaded(str(_ENV_FILE))
     try:
         with bot_instance_lock():
             _run_polling()
