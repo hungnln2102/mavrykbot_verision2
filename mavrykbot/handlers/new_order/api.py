@@ -1,7 +1,7 @@
 """
 Gọi API Website: notify-done, cancel, danh sách NCC (suppliers).
 Đọc NOTIFY_ORDER_BASE_URL và NOTIFY_ORDER_API_KEY khi gọi (sau khi .env đã load).
-Dùng requests để tránh lỗi SSL/redirect khi gọi HTTPS.
+Luôn dùng HTTP cho 127.0.0.1/localhost để tránh SSL WRONG_VERSION_NUMBER.
 """
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ import json
 import logging
 import os
 from typing import Tuple
+from urllib.parse import urlparse, urlunparse
 
 import requests
 
@@ -16,22 +17,41 @@ logger = logging.getLogger(__name__)
 
 REQUEST_TIMEOUT = 15
 REQUEST_VERIFY = True
+LOCALHOST_NAMES = ("127.0.0.1", "localhost", "::1")
+
+
+def _normalize_base_url(base: str) -> str:
+    """Ép http cho host local để tránh SSL lỗi."""
+    base = (base or "").strip().rstrip("/")
+    if not base:
+        return base
+    try:
+        p = urlparse(base)
+        host = (p.hostname or "").lower()
+        if host in LOCALHOST_NAMES and p.scheme.lower() == "https":
+            base = urlunparse(("http", p.netloc, p.path or "", p.params, p.query, p.fragment))
+            logger.info("NOTIFY_ORDER_BASE_URL: localhost dùng http thay vì https")
+    except Exception:
+        pass
+    return base
+
+
+def _request_kw(base: str) -> dict:
+    """verify=False cho localhost; còn lại dùng REQUEST_VERIFY."""
+    try:
+        p = urlparse(base)
+        if (p.hostname or "").lower() in LOCALHOST_NAMES:
+            return {"verify": False, "timeout": REQUEST_TIMEOUT, "allow_redirects": True}
+    except Exception:
+        pass
+    return {"verify": REQUEST_VERIFY, "timeout": REQUEST_TIMEOUT, "allow_redirects": True}
 
 
 def get_notify_order_config() -> Tuple[str, str]:
     """Đọc cấu hình khi gọi (sau khi .env đã load)."""
-    base = (os.getenv("NOTIFY_ORDER_BASE_URL") or "").rstrip("/")
+    base = os.getenv("NOTIFY_ORDER_BASE_URL") or ""
     key = (os.getenv("NOTIFY_ORDER_API_KEY") or "").strip()
-    # API local (127.0.0.1 / localhost) thường chạy HTTP, không SSL → tránh WRONG_VERSION_NUMBER
-    if base.lower().startswith("https://"):
-        try:
-            from urllib.parse import urlparse
-            p = urlparse(base)
-            if (p.hostname or "").lower() in ("127.0.0.1", "localhost"):
-                base = "http://" + (p.netloc or "") + (p.path or "") + ("?" + p.query if p.query else "")
-                logger.debug("NOTIFY_ORDER_BASE_URL localhost: dùng http thay vì https")
-        except Exception:
-            pass
+    base = _normalize_base_url(base)
     return base, key
 
 
@@ -40,15 +60,14 @@ def call_order_api(path: str, body: dict) -> Tuple[bool, str]:
     base, key = get_notify_order_config()
     if not base or not key:
         return False, "Chưa cấu hình NOTIFY_ORDER_BASE_URL / NOTIFY_ORDER_API_KEY"
-    url = f"{base}{path}"
+    url = base.rstrip("/") + (path if path.startswith("/") else "/" + path)
+    kw = _request_kw(base)
     try:
         r = requests.post(
             url,
             json=body,
             headers={"Content-Type": "application/json", "X-Api-Key": key},
-            timeout=REQUEST_TIMEOUT,
-            verify=REQUEST_VERIFY,
-            allow_redirects=True,
+            **kw,
         )
         raw = r.text
         try:
@@ -59,7 +78,7 @@ def call_order_api(path: str, body: dict) -> Tuple[bool, str]:
         except json.JSONDecodeError:
             return (r.status_code == 200, raw)
     except requests.exceptions.SSLError as e:
-        logger.warning("Order API SSL error (check NOTIFY_ORDER_BASE_URL scheme): %s", e)
+        logger.warning("Order API SSL error (NOTIFY_ORDER_BASE_URL nên dùng http cho local): %s", e)
         return False, str(e)
     except requests.exceptions.RequestException as e:
         logger.exception("Order API call failed")
@@ -71,17 +90,17 @@ def get_suppliers() -> Tuple[bool, list, str]:
     base, key = get_notify_order_config()
     if not base or not key:
         return False, [], "Chưa cấu hình NOTIFY_ORDER_BASE_URL / NOTIFY_ORDER_API_KEY"
-    if base.rstrip("/").endswith("/api"):
-        url = f"{base.rstrip('/')}/orders/suppliers"
+    base_clean = base.rstrip("/")
+    if base_clean.endswith("/api"):
+        url = f"{base_clean}/orders/suppliers"
     else:
-        url = f"{base}/api/orders/suppliers"
+        url = f"{base_clean}/api/orders/suppliers"
+    kw = _request_kw(base)
     try:
         r = requests.get(
             url,
             headers={"X-Api-Key": key},
-            timeout=REQUEST_TIMEOUT,
-            verify=REQUEST_VERIFY,
-            allow_redirects=True,
+            **kw,
         )
         raw = r.text
         if r.status_code == 404:
@@ -97,7 +116,7 @@ def get_suppliers() -> Tuple[bool, list, str]:
         except json.JSONDecodeError:
             return False, [], raw
     except requests.exceptions.SSLError as e:
-        logger.warning("getSuppliers SSL error (check NOTIFY_ORDER_BASE_URL use https vs http): %s", e)
+        logger.warning("getSuppliers SSL (NOTIFY_ORDER_BASE_URL dùng http cho local): %s", e)
         return False, [], str(e)
     except requests.exceptions.RequestException as e:
         logger.exception("getSuppliers failed")
