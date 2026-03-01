@@ -53,10 +53,22 @@ def _request_kw(base: str) -> dict:
 
 
 def get_notify_order_config() -> Tuple[str, str]:
-    """Đọc cấu hình khi gọi (sau khi .env đã load)."""
+    """Đọc cấu hình khi gọi (sau khi .env đã load).
+    Production: set NOTIFY_ORDER_BASE_URL_PRODUCTION=https://api.mavrykpremium.store để gọi API thật, không dùng 127.0.0.1.
+    """
     base = os.getenv("NOTIFY_ORDER_BASE_URL") or ""
     key = (os.getenv("NOTIFY_ORDER_API_KEY") or "").strip()
     base = _normalize_base_url(base)
+    # Trên production server: nếu base đang là localhost mà có NOTIFY_ORDER_BASE_URL_PRODUCTION thì dùng production URL
+    try:
+        p = urlparse(base)
+        if (p.hostname or "").lower() in LOCALHOST_NAMES:
+            prod_base = (os.getenv("NOTIFY_ORDER_BASE_URL_PRODUCTION") or "").strip().rstrip("/")
+            if prod_base:
+                base = _normalize_base_url(prod_base)
+                logger.info("NOTIFY_ORDER_BASE_URL_PRODUCTION được dùng thay cho localhost")
+    except Exception:
+        pass
     return base, key
 
 
@@ -112,6 +124,11 @@ def get_suppliers() -> Tuple[bool, list, str]:
             return False, [], (
                 f"GET {url} trả về 404. Kiểm tra NOTIFY_ORDER_BASE_URL "
                 "và đảm bảo server Website đã deploy route GET /api/orders/suppliers."
+            )
+        if r.status_code == 301:
+            return False, [], (
+                "API trả về 301 (Moved Permanently). Trên production hãy set "
+                "NOTIFY_ORDER_BASE_URL_PRODUCTION=https://api.mavrykpremium.store trong .env của bot (hoặc đổi NOTIFY_ORDER_BASE_URL sang URL production)."
             )
         try:
             out = r.json()

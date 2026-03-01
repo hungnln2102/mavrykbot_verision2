@@ -11,11 +11,13 @@ NOTIFY_ORDER_BASE_URL=http://127.0.0.1:4000
 NOTIFY_ORDER_API_KEY=<cùng giá trị với server Website>
 ```
 
-Khi bật lại server production, đổi lại:
+Khi bật lại server production, trên **máy chạy bot production** thêm vào .env (hoặc đổi NOTIFY_ORDER_BASE_URL):
 
 ```env
-NOTIFY_ORDER_BASE_URL=https://api.mavrykpremium.store
+NOTIFY_ORDER_BASE_URL_PRODUCTION=https://api.mavrykpremium.store
 ```
+
+(Khi NOTIFY_ORDER_BASE_URL là 127.0.0.1/localhost, bot sẽ tự dùng NOTIFY_ORDER_BASE_URL_PRODUCTION nếu có.)
 
 ## 2. Cấu hình Server Website
 
