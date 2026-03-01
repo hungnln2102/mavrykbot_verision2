@@ -22,6 +22,16 @@ def get_notify_order_config() -> Tuple[str, str]:
     """Đọc cấu hình khi gọi (sau khi .env đã load)."""
     base = (os.getenv("NOTIFY_ORDER_BASE_URL") or "").rstrip("/")
     key = (os.getenv("NOTIFY_ORDER_API_KEY") or "").strip()
+    # API local (127.0.0.1 / localhost) thường chạy HTTP, không SSL → tránh WRONG_VERSION_NUMBER
+    if base.lower().startswith("https://"):
+        try:
+            from urllib.parse import urlparse
+            p = urlparse(base)
+            if (p.hostname or "").lower() in ("127.0.0.1", "localhost"):
+                base = "http://" + (p.netloc or "") + (p.path or "") + ("?" + p.query if p.query else "")
+                logger.debug("NOTIFY_ORDER_BASE_URL localhost: dùng http thay vì https")
+        except Exception:
+            pass
     return base, key
 
 
