@@ -47,6 +47,18 @@ def _pick_one_base_url(raw: str, prefer_https: bool = False) -> str:
     return ""
 
 
+def _ensure_single_base(base: str) -> str:
+    """Đảm bảo base là một URL hợp lệ, không chứa dấu phẩy (phòng env ghi nhầm nhiều URL)."""
+    base = (base or "").strip()
+    if "," not in base:
+        return base.rstrip("/")
+    fixed = _pick_one_base_url(base, prefer_https=True) or _pick_one_base_url(base)
+    if fixed:
+        logger.warning("NOTIFY_ORDER_BASE_URL chứa dấu phẩy, đã dùng một URL: %s", fixed)
+        return fixed.rstrip("/")
+    return base.rstrip("/")
+
+
 def _normalize_base_url(base: str) -> str:
     """Ép http cho host local để tránh SSL lỗi (kể cả khi env ghi https)."""
     base = (base or "").strip().rstrip("/")
@@ -109,6 +121,7 @@ def call_order_api(path: str, body: dict) -> Tuple[bool, str]:
     base, key = get_notify_order_config()
     if not base or not key:
         return False, "Chưa cấu hình NOTIFY_ORDER_BASE_URL / NOTIFY_ORDER_API_KEY"
+    base = _ensure_single_base(base)
     url = base.rstrip("/") + (path if path.startswith("/") else "/" + path)
     kw = _request_kw(base)
     try:
@@ -139,6 +152,7 @@ def get_suppliers() -> Tuple[bool, list, str]:
     base, key = get_notify_order_config()
     if not base or not key:
         return False, [], "Chưa cấu hình NOTIFY_ORDER_BASE_URL / NOTIFY_ORDER_API_KEY"
+    base = _ensure_single_base(base)
     base_clean = base.rstrip("/")
     if base_clean.endswith("/api"):
         url = f"{base_clean}/orders/suppliers"
