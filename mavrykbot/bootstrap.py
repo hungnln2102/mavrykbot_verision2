@@ -38,9 +38,9 @@ def ensure_env_loaded(env_file: str | None = None) -> None:
 
     env_path = get_env_path(env_file)
     if env_path.exists():
-        load_dotenv(env_path)
+        load_dotenv(env_path, override=True)
     else:
-        load_dotenv()
+        load_dotenv(override=True)
 
 
 def log_env_status(env_file: str | None = None) -> None:

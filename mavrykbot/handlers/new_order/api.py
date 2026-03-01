@@ -104,14 +104,26 @@ def get_notify_order_config() -> Tuple[str, str]:
     if not base and "," in raw_base:
         logger.warning("NOTIFY_ORDER_BASE_URL có dấu phẩy, chỉ nên set một URL: %s", raw_base[:80])
     key = (os.getenv("NOTIFY_ORDER_API_KEY") or "").strip()
-    # Nếu thiếu key, thử load lại .env (phòng process webhook/worker chưa load đúng lúc khởi động)
+    # Nếu thiếu key, thử load lại .env với override=True rồi fallback đọc trực tiếp từ file
     if not key:
         try:
             from dotenv import load_dotenv
             env_path = get_env_path()
             if env_path.exists():
-                load_dotenv(env_path)
+                load_dotenv(env_path, override=True)
                 key = (os.getenv("NOTIFY_ORDER_API_KEY") or "").strip()
+            if not key and env_path.exists():
+                # Fallback: đọc trực tiếp dòng NOTIFY_ORDER_API_KEY= trong file
+                with open(env_path, "r", encoding="utf-8", errors="replace") as f:
+                    for line in f:
+                        line = line.strip()
+                        if line.startswith("#") or not line.startswith("NOTIFY_ORDER_API_KEY="):
+                            continue
+                        key = line.split("=", 1)[1].strip().strip("'\"").strip()
+                        if key:
+                            os.environ["NOTIFY_ORDER_API_KEY"] = key
+                            logger.info("NOTIFY_ORDER_API_KEY đọc từ file .env (fallback)")
+                        break
             if not key:
                 msg = (
                     f"NOTIFY_ORDER_API_KEY trống. Kiểm tra file .env tại: {env_path.resolve()} "
