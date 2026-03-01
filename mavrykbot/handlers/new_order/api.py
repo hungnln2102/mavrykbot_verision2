@@ -176,6 +176,7 @@ def get_suppliers() -> Tuple[bool, list, str]:
             "NOTIFY_ORDER_API_KEY chưa cấu hình. Thêm vào file .env tại: "
             f"{env_path} (dòng: NOTIFY_ORDER_API_KEY=giá_trị_cùng_server_Website)"
         )
+        logger.error("get_suppliers: %s", err)
         return False, [], err
     base = _ensure_single_base(base)
     base_clean = base.rstrip("/")
