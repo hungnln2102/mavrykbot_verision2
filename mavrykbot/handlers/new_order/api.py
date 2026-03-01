@@ -13,6 +13,8 @@ from urllib.parse import urlparse, urlunparse
 
 import requests
 
+from mavrykbot.bootstrap import get_env_path
+
 logger = logging.getLogger(__name__)
 
 REQUEST_TIMEOUT = 15
@@ -101,6 +103,21 @@ def get_notify_order_config() -> Tuple[str, str]:
     if not base and "," in raw_base:
         logger.warning("NOTIFY_ORDER_BASE_URL có dấu phẩy, chỉ nên set một URL: %s", raw_base[:80])
     key = (os.getenv("NOTIFY_ORDER_API_KEY") or "").strip()
+    # Nếu thiếu key, thử load lại .env (phòng process webhook/worker chưa load đúng lúc khởi động)
+    if not key:
+        try:
+            from dotenv import load_dotenv
+            env_path = get_env_path()
+            if env_path.exists():
+                load_dotenv(env_path)
+                key = (os.getenv("NOTIFY_ORDER_API_KEY") or "").strip()
+            if not key:
+                logger.warning(
+                    "NOTIFY_ORDER_API_KEY trống. Kiểm tra file .env tại: %s (phải có dòng NOTIFY_ORDER_API_KEY=...)",
+                    env_path.resolve(),
+                )
+        except Exception as e:
+            logger.warning("Không load lại .env được: %s", e)
     base = _normalize_base_url(base)
     # Trên production server: nếu base đang là localhost mà có NOTIFY_ORDER_BASE_URL_PRODUCTION thì dùng production URL
     try:
@@ -120,7 +137,10 @@ def call_order_api(path: str, body: dict) -> Tuple[bool, str]:
     """POST tới API orders (notify-done, cancel). Trả về (success, message)."""
     base, key = get_notify_order_config()
     if not base or not key:
-        return False, "Chưa cấu hình NOTIFY_ORDER_BASE_URL / NOTIFY_ORDER_API_KEY"
+        env_path = get_env_path().resolve()
+        return False, (
+            f"NOTIFY_ORDER_API_KEY chưa cấu hình. Kiểm tra file .env tại: {env_path}"
+        )
     base = _ensure_single_base(base)
     url = base.rstrip("/") + (path if path.startswith("/") else "/" + path)
     kw = _request_kw(base)
@@ -151,7 +171,12 @@ def get_suppliers() -> Tuple[bool, list, str]:
     """GET /api/orders/suppliers. Trả về (ok, list of {id, supplier_name}, error_msg)."""
     base, key = get_notify_order_config()
     if not base or not key:
-        return False, [], "Chưa cấu hình NOTIFY_ORDER_BASE_URL / NOTIFY_ORDER_API_KEY"
+        env_path = get_env_path().resolve()
+        err = (
+            "NOTIFY_ORDER_API_KEY chưa cấu hình. Thêm vào file .env tại: "
+            f"{env_path} (dòng: NOTIFY_ORDER_API_KEY=giá_trị_cùng_server_Website)"
+        )
+        return False, [], err
     base = _ensure_single_base(base)
     base_clean = base.rstrip("/")
     if base_clean.endswith("/api"):
