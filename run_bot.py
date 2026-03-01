@@ -5,12 +5,13 @@ import logging
 
 from telegram.error import Conflict
 
-from mavrykbot.bootstrap import ensure_env_loaded, ensure_project_root
+from mavrykbot.bootstrap import ensure_env_loaded, ensure_project_root, log_env_status
 from mavrykbot.core.runtime import bot_instance_lock
 
 # Load .env trước khi import main (để NOTIFY_ORDER_* có sẵn khi handler chạy)
 ensure_project_root()
 ensure_env_loaded()
+log_env_status()  # Log đường dẫn .env và trạng thái biến (để kiểm tra bot dùng env ở đâu)
 
 from mavrykbot.handlers.main import build_application
 
