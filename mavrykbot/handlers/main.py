@@ -1,6 +1,6 @@
 """
-Telegram bot entry point.
-Sets up handlers and provides the Application builder function for webhook mode.
+Telegram bot entry point – menu + New Order (Hoàn thành / Hủy đơn).
+Dùng cho run_bot.py (polling) hoặc tích hợp webhook sau.
 """
 from __future__ import annotations
 
@@ -11,7 +11,6 @@ except ModuleNotFoundError as exc:
         raise
     import sys
     from pathlib import Path
-
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
     from mavrykbot.bootstrap import ensure_project_root
 
@@ -22,6 +21,7 @@ import os
 from typing import Awaitable, Callable, Optional
 
 from telegram import Update
+from telegram.request import HTTPXRequest
 from telegram.ext import (
     AIORateLimiter,
     Application,
@@ -32,23 +32,8 @@ from telegram.ext import (
 from telegram.error import Conflict
 
 from mavrykbot.core.config import load_bot_config
-from mavrykbot.handlers.payment_supply import get_payment_supply_conversation_handler
-from mavrykbot.handlers.view_order_unpaid import get_unpaid_order_conversation_handler
-from mavrykbot.handlers.Order.add_order import get_add_order_conversation_handler
-from mavrykbot.handlers.menu import show_main_selector, show_outer_menu
-from mavrykbot.handlers.UpdateOrder import get_update_order_conversation_handler
-from mavrykbot.notifications.error_notifier import notify_error
-
-try:
-    from mavrykbot.handlers.create_qrcode import qr_conversation
-except ImportError:  # pragma: no cover - optional feature
-    qr_conversation = CommandHandler(
-        "qr_placeholder",
-        lambda update, context: context.bot.send_message(
-            update.effective_chat.id,
-            "QR feature is not available yet.",
-        ),
-    )
+from mavrykbot.handlers.menu import show_menu
+from mavrykbot.handlers.new_order import register_new_order_handlers
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -60,17 +45,13 @@ BOT_TOKEN = load_bot_config().token
 
 _admin_chat_id = os.getenv("ADMIN_CHAT_ID")
 AUTHORIZED_USER_ID: Optional[int] = int(_admin_chat_id) if _admin_chat_id else None
-DEFAULT_COMING_SOON = "Feature is under development."
-COMING_SOON_MESSAGES = {
-    "start_refund": "Refund flow is under development.",
-    "update": "Order update feature will be back soon.",
-}
+COMING_SOON = "Tính năng đang được phát triển."
 
 
 def user_only_filter(
     func: Callable[[Update, ContextTypes.DEFAULT_TYPE], Awaitable[None]]
 ):
-    """Decorator restricting bot access to the configured admin."""
+    """Chỉ cho phép user admin đã cấu hình truy cập bot."""
 
     async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if AUTHORIZED_USER_ID is not None and update.effective_user.id != AUTHORIZED_USER_ID:
@@ -85,92 +66,57 @@ def user_only_filter(
     return wrapper
 
 
-async def _send_coming_soon(update: Update, feature_key: str):
-    """Send placeholder message for unfinished flows."""
-    message = COMING_SOON_MESSAGES.get(feature_key, DEFAULT_COMING_SOON)
+async def _send_coming_soon(update: Update):
     if update.callback_query:
         await update.callback_query.answer()
-        await update.effective_chat.send_message(message)
+        await update.effective_chat.send_message(COMING_SOON)
     else:
-        await update.message.reply_text(message)
-    logger.info("Sent coming-soon message for %s", feature_key)
+        await update.message.reply_text(COMING_SOON)
 
 
 @user_only_filter
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await show_outer_menu(update, context)
+    await show_menu(update, context)
 
 
 @user_only_filter
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Please use /menu to interact with the bot.")
+    await update.message.reply_text("Dùng /menu hoặc /start để mở menu.")
 
 
 @user_only_filter
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Callback chung (menu, v.v.). New Order đã có handler riêng với pattern."""
     query = update.callback_query
-    data = query.data
     await query.answer()
-
-    if data == "menu_shop":
-        await show_main_selector(update, context, edit=True)
-        return
-    if data == "back_to_menu":
-        await show_outer_menu(update, context)
-        return
-    if data == "cancel_update":
-        await show_main_selector(update, context, edit=True)
-        return
-    if data.startswith("action_") or data in {"nav_next", "nav_prev"}:
-        await query.answer("Please open /update first.", show_alert=True)
-        return
-    if data == "delete":
-        return
-    if data in {"add", "unpaid_orders", "exit_unpaid", "payment_source"}:
-        return
-
-    await _send_coming_soon(update, data)
+    await _send_coming_soon(update)
 
 
 async def application_error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     if isinstance(context.error, Conflict):
-        logger.warning("Polling stopped because another instance is running: %s", context.error)
+        logger.warning("Polling stopped: another instance is running: %s", context.error)
         return
-
-    logger.error("Unhandled exception while processing update.", exc_info=context.error)
-    error_message = "Bot encountered an unexpected error."
-    extra = {"update": str(update)} if update else None
-
-    try:
-        await notify_error(
-            context.bot,
-            error_message,
-            exception=context.error,
-            extra=extra,
-        )
-    except Exception as exc:  # pragma: no cover
-        logger.error("Failed to notify error topic: %s", exc, exc_info=True)
+    logger.error("Unhandled exception.", exc_info=context.error)
 
 
 def build_application() -> Application:
-    """Xây dựng và trả về đối tượng Application để sử dụng cho Webhook (Flask integration)."""
+    request = HTTPXRequest(
+        connect_timeout=30.0,
+        read_timeout=30.0,
+        write_timeout=30.0,
+    )
     application = (
         Application.builder()
         .token(BOT_TOKEN)
+        .request(request)
         .rate_limiter(AIORateLimiter())
         .build()
     )
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("menu", start))
     application.add_handler(CommandHandler("help", help_command))
-
-    application.add_handler(get_add_order_conversation_handler())
-    application.add_handler(get_update_order_conversation_handler())
-    application.add_handler(get_unpaid_order_conversation_handler())
-    application.add_handler(get_payment_supply_conversation_handler())
-    application.add_handler(qr_conversation)
-
+    # New Order (Hoàn thành / Hủy đơn) — đăng ký trước để pattern được ưu tiên
+    register_new_order_handlers(application, user_only_filter)
     application.add_handler(CallbackQueryHandler(button_callback))
     application.add_error_handler(application_error_handler)
-
     return application

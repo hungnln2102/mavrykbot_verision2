@@ -7,6 +7,11 @@ from telegram.error import Conflict
 
 from mavrykbot.bootstrap import ensure_env_loaded, ensure_project_root
 from mavrykbot.core.runtime import bot_instance_lock
+
+# Load .env trước khi import main (để NOTIFY_ORDER_* có sẵn khi handler chạy)
+ensure_project_root()
+ensure_env_loaded()
+
 from mavrykbot.handlers.main import build_application
 
 
