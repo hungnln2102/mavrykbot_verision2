@@ -104,6 +104,7 @@ def get_notify_order_config() -> Tuple[str, str]:
     if not base and "," in raw_base:
         logger.warning("NOTIFY_ORDER_BASE_URL có dấu phẩy, chỉ nên set một URL: %s", raw_base[:80])
     key = (os.getenv("NOTIFY_ORDER_API_KEY") or "").strip()
+    logger.info("get_notify_order_config: NOTIFY_ORDER_API_KEY len=%s", len(key))
     # Nếu thiếu key, thử load lại .env với override=True rồi fallback đọc trực tiếp từ file
     if not key:
         try:
@@ -185,6 +186,7 @@ def call_order_api(path: str, body: dict) -> Tuple[bool, str]:
 
 def get_suppliers() -> Tuple[bool, list, str]:
     """GET /api/orders/suppliers. Trả về (ok, list of {id, supplier_name}, error_msg)."""
+    logger.info("get_suppliers called")
     base, key = get_notify_order_config()
     if not base or not key:
         env_path = get_env_path().resolve()

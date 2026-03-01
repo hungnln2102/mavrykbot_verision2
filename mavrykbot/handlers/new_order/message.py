@@ -5,11 +5,15 @@ Mọi reply luôn gửi vào topic New Order (order_done_thread_id hoặc NEW_OR
 from __future__ import annotations
 
 import asyncio
+import logging
+import sys
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
 from mavrykbot.handlers.new_order.api import get_suppliers
 from mavrykbot.handlers.new_order.utils import reply_in_topic_kw
+
+logger = logging.getLogger(__name__)
 
 
 async def order_done_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -33,8 +37,11 @@ async def order_done_text_handler(update: Update, context: ContextTypes.DEFAULT_
     if not ok or not suppliers:
         thread_id = context.user_data.get("order_done_thread_id")
         reply_kw = reply_in_topic_kw(thread_id)
+        err_msg = err or "trống"
+        logger.error("get_suppliers failed: ok=%s suppliers_count=0 err=%s", ok, err_msg)
+        print(f"[MAVRYKBOT] get_suppliers failed: {err_msg}", file=sys.stderr, flush=True)
         await update.effective_chat.send_message(
-            f"Không lấy được danh sách NCC: {err or 'trống'}. Thử lại sau.",
+            f"Không lấy được danh sách NCC: {err_msg}. Thử lại sau.",
             **reply_kw,
         )
         return
