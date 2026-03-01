@@ -20,6 +20,33 @@ REQUEST_VERIFY = True
 LOCALHOST_NAMES = ("127.0.0.1", "localhost", "::1")
 
 
+def _pick_one_base_url(raw: str, prefer_https: bool = False) -> str:
+    """Từ chuỗi có thể chứa nhiều URL (cách nhau bằng dấu phẩy), trả về một URL hợp lệ.
+    prefer_https: nếu True thì ưu tiên segment bắt đầu bằng https (cho production).
+    """
+    raw = (raw or "").strip()
+    if not raw:
+        return ""
+    parts = [p.strip() for p in raw.split(",") if p.strip()]
+    if prefer_https:
+        for p in parts:
+            if p.lower().startswith("https://"):
+                parsed = urlparse(p)
+                if parsed.hostname:
+                    return p.strip().rstrip("/")
+        for p in parts:
+            if p.lower().startswith("http://"):
+                parsed = urlparse(p)
+                if parsed.hostname:
+                    return p.strip().rstrip("/")
+        return ""
+    for p in parts:
+        parsed = urlparse(p)
+        if parsed.hostname:
+            return p.strip().rstrip("/")
+    return ""
+
+
 def _normalize_base_url(base: str) -> str:
     """Ép http cho host local để tránh SSL lỗi (kể cả khi env ghi https)."""
     base = (base or "").strip().rstrip("/")
@@ -55,15 +82,20 @@ def _request_kw(base: str) -> dict:
 def get_notify_order_config() -> Tuple[str, str]:
     """Đọc cấu hình khi gọi (sau khi .env đã load).
     Production: set NOTIFY_ORDER_BASE_URL_PRODUCTION=https://api.mavrykpremium.store để gọi API thật, không dùng 127.0.0.1.
+    Nếu giá trị env chứa nhiều URL (cách nhau bằng dấu phẩy), chỉ lấy một URL hợp lệ.
     """
-    base = os.getenv("NOTIFY_ORDER_BASE_URL") or ""
+    raw_base = os.getenv("NOTIFY_ORDER_BASE_URL") or ""
+    base = _pick_one_base_url(raw_base)
+    if not base and "," in raw_base:
+        logger.warning("NOTIFY_ORDER_BASE_URL có dấu phẩy, chỉ nên set một URL: %s", raw_base[:80])
     key = (os.getenv("NOTIFY_ORDER_API_KEY") or "").strip()
     base = _normalize_base_url(base)
     # Trên production server: nếu base đang là localhost mà có NOTIFY_ORDER_BASE_URL_PRODUCTION thì dùng production URL
     try:
         p = urlparse(base)
         if (p.hostname or "").lower() in LOCALHOST_NAMES:
-            prod_base = (os.getenv("NOTIFY_ORDER_BASE_URL_PRODUCTION") or "").strip().rstrip("/")
+            raw_prod = os.getenv("NOTIFY_ORDER_BASE_URL_PRODUCTION") or ""
+            prod_base = _pick_one_base_url(raw_prod, prefer_https=True)
             if prod_base:
                 base = _normalize_base_url(prod_base)
                 logger.info("NOTIFY_ORDER_BASE_URL_PRODUCTION được dùng thay cho localhost")
