@@ -72,19 +72,9 @@ export const DB_SCHEMA: Record<string, TableConfig> = {
       DISPLAY_NAME: "display_name",
       FORM_ID: "form_id",
       IS_ACTIVE: "is_active",
-    },
-  },
-
-  PRICE_CONFIG: {
-    SCHEMA: SCHEMA_PRODUCT,
-    TABLE: "price_config",
-    COLS: {
-      ID: "id",
-      VARIANT_ID: "variant_id",
       PCT_CTV: "pct_ctv",
       PCT_KHACH: "pct_khach",
       PCT_PROMO: "pct_promo",
-      UPDATED_AT: "updated_at",
     },
   },
 
@@ -170,35 +160,23 @@ export const DB_SCHEMA: Record<string, TableConfig> = {
     },
   },
 
-  /** Kho tài khoản (admin_orderlist) */
-  ACCOUNT_STORAGE: {
-    SCHEMA: SCHEMA_PRODUCT,
-    TABLE: "account_storage",
-    COLS: {
-      ID: "id",
-      USERNAME: "username",
-      PASSWORD: "password",
-      MAIL_2ND: "mail_2nd",
-      MAIL_FAMILY: "mail_family",
-      STORAGE: "storage",
-      NOTE: "note",
-    },
-  },
-
   /** Tồn kho sản phẩm (admin_orderlist) */
   PRODUCT_STOCK: {
     SCHEMA: SCHEMA_PRODUCT,
-    TABLE: "product_stock",
+    TABLE: "product_stocks",
     COLS: {
       ID: "id",
       PRODUCT_TYPE: "product_type",
       ACCOUNT_USERNAME: "account_username",
-      ACCOUNT_PASSWORD: "account_password",
       BACKUP_EMAIL: "backup_email",
-      TWO_FA_CODE: "two_fa_code",
+      PASSWORD_ENCRYPTED: "password_encrypted",
+      TWO_FA_ENCRYPTED: "two_fa_encrypted",
+      STATUS: "status",
+      EXPIRES_AT: "expires_at",
+      IS_VERIFIED: "is_verified",
       NOTE: "note",
-      STOCK_STATUS: "stock_status",
       CREATED_AT: "created_at",
+      UPDATED_AT: "updated_at",
     },
   },
 
@@ -209,15 +187,13 @@ export const DB_SCHEMA: Record<string, TableConfig> = {
     COLS: {
       ID: "id",
       PACKAGE_ID: "package_id",
-      USERNAME: "account_user",
-      PASSWORD: "account_pass",
-      MAIL_2ND: "recovery_mail",
-      NOTE: "note",
-      EXPIRED: "expiry_date",
       SUPPLIER: "supplier",
       COST: "cost",
       SLOT: "slot",
       MATCH: "match",
+      STOCK_ID: "stock_id",
+      STORAGE_ID: "storage_id",
+      STORAGE_TOTAL: "storage_total",
     },
   },
 
@@ -691,7 +667,6 @@ const t = (key: string) => `${DB_SCHEMA[key]!.SCHEMA}.${DB_SCHEMA[key]!.TABLE}`;
 export const TABLES = {
   PRODUCT:          t("PRODUCT"),
   VARIANT:          t("VARIANT"),
-  PRICE_CONFIG:     t("PRICE_CONFIG"),
   PRODUCT_DESC:     t("PRODUCT_DESC"),
   CATEGORY:         t("CATEGORY"),
   PRODUCT_CATEGORY: t("PRODUCT_CATEGORY"),
@@ -699,7 +674,6 @@ export const TABLES = {
   PRODUCT_SOLD_30D: t("PRODUCT_SOLD_30D"),
   PRODUCT_SOLD_COUNT: t("PRODUCT_SOLD_COUNT"),
   VARIANT_SOLD_COUNT: t("VARIANT_SOLD_COUNT"),
-  ACCOUNT_STORAGE:  t("ACCOUNT_STORAGE"),
   PRODUCT_STOCK:    t("PRODUCT_STOCK"),
   PACKAGE_PRODUCT:  t("PACKAGE_PRODUCT"),
   SUPPLIER:         t("SUPPLIER"),

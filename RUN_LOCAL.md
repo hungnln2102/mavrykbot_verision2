@@ -24,7 +24,7 @@ NOTIFY_ORDER_BASE_URL_PRODUCTION=https://api.mavrykpremium.store
 - Trong **Website/my-store/apps/server/.env** phải có:
   - `NOTIFY_ORDER_API_KEY` = **cùng giá trị** với `NOTIFY_ORDER_API_KEY` trong .env của bot.
   - `PORT=4000` (mặc định) hoặc port bạn chạy server.
-- Database: server cần kết nối được tới PostgreSQL (bảng `partner.supplier` cho GET /api/orders/suppliers). Có thể dùng DB trên máy local hoặc DB từ xa (ví dụ 110.172.28.206) nếu mở kết nối.
+- Database: server cần kết nối được tới PostgreSQL (bảng `partner.supplier` cho GET /api/orders/suppliers). Có thể dùng DB trên máy local hoặc DB từ xa (ví dụ 180.93.113.39) nếu mở kết nối.
 
 ## 3. Chạy
 
